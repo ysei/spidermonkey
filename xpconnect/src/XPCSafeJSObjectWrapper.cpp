@@ -41,6 +41,7 @@
 #include "jsdbgapi.h"
 #include "jsscript.h" // for js_ScriptClass
 #include "XPCWrapper.h"
+#include "jsregexp.h"
 
 JS_STATIC_DLL_CALLBACK(JSBool)
 XPC_SJOW_AddProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp);
@@ -78,6 +79,10 @@ XPC_SJOW_Call(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
 JSBool
 XPC_SJOW_Construct(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
                    jsval *rval);
+
+JS_STATIC_DLL_CALLBACK(JSBool)
+XPC_SJOW_Create(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
+                jsval *rval);
 
 JS_STATIC_DLL_CALLBACK(JSBool)
 XPC_SJOW_Equality(JSContext *cx, JSObject *obj, jsval v, JSBool *bp);
@@ -195,7 +200,7 @@ JSExtendedClass sXPC_SJOW_JSClass = {
     XPC_SJOW_Enumerate,   (JSResolveOp)XPC_SJOW_NewResolve,
     XPC_SJOW_Convert,     XPC_SJOW_Finalize,
     nsnull,               XPC_SJOW_CheckAccess,
-    XPC_SJOW_Call,        XPC_SJOW_Construct,
+    XPC_SJOW_Call,        XPC_SJOW_Create,
     nsnull,               nsnull,
     nsnull,               nsnull
   },
@@ -515,6 +520,18 @@ XPC_SJOW_DelProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp)
   return XPCWrapper::DelProperty(cx, unsafeObj, id, vp);
 }
 
+static inline JSBool
+CallWithoutStatics(JSContext *cx, JSObject *obj, jsval fval, uintN argc,
+                   jsval *argv, jsval *rval)
+{
+  JSRegExpStatics statics;
+  JSTempValueRooter tvr;
+  js_SaveAndClearRegExpStatics(cx, &statics, &tvr);
+  JSBool ok = ::JS_CallFunctionValue(cx, obj, fval, argc, argv, rval);
+  js_RestoreRegExpStatics(cx, &statics, &tvr);
+  return ok;
+}
+
 // Call wrapper to help with wrapping calls to functions or callable
 // objects in a scripted function (see XPC_SJOW_Call()). The first
 // argument passed to this method is the unsafe function to call, the
@@ -529,7 +546,7 @@ XPC_SJOW_CallWrapper(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
     return ThrowException(NS_ERROR_INVALID_ARG, cx);
   }
 
-  return ::JS_CallFunctionValue(cx, obj, argv[0], argc - 1, argv + 1, rval);
+  return CallWithoutStatics(cx, obj, argv[0], argc - 1, argv + 1, rval);
 }
 
 static JSBool
@@ -582,9 +599,8 @@ XPC_SJOW_GetOrSetProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp,
   }
 
   jsval val;
-  JSBool ok = ::JS_CallFunctionValue(cx, unsafeObj, scriptedFunVal,
-                                     aIsSet ? 2 : 1, args, &val);
-
+  JSBool ok = CallWithoutStatics(cx, unsafeObj, scriptedFunVal,
+                                 aIsSet ? 2 : 1, args, &val);
   return ok && WrapJSValue(cx, obj, val, vp);
 }
 
@@ -853,8 +869,8 @@ XPC_SJOW_Call(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
   }
 
   jsval val;
-  JSBool ok = ::JS_CallFunctionValue(cx, callThisObj, scriptedFunVal, argc + 2,
-                                     args, &val);
+  JSBool ok = CallWithoutStatics(cx, callThisObj, scriptedFunVal, argc + 2,
+                                 args, &val);
 
   if (args != argsBuf) {
     nsMemory::Free(args);
@@ -943,6 +959,33 @@ XPC_SJOW_Construct(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
   *rval = OBJECT_TO_JSVAL(wrapperObj);
 
   return JS_TRUE;
+}
+
+JS_STATIC_DLL_CALLBACK(JSBool)
+XPC_SJOW_Create(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
+                jsval *rval)
+{
+  JSObject *callee = JSVAL_TO_OBJECT(argv[-2]);
+  NS_ASSERTION(GetUnsafeObject(callee), "How'd we get here?");
+  JSObject *unsafeObj = GetUnsafeObject(callee);
+  if (!unsafeObj) {
+    // No unsafe object, nothing to resolve here.
+
+    return JS_TRUE;
+  }
+
+  // Check that the caller can access the unsafe object.
+  if (!CanCallerAccess(cx, unsafeObj)) {
+    // CanCallerAccess() already threw for us.
+    return JS_FALSE;
+  }
+
+  if (!JS_CallFunctionValue(cx, obj, OBJECT_TO_JSVAL(callee), argc, argv,
+                            rval)) {
+    return JS_FALSE;
+  }
+
+  return WrapJSValue(cx, callee, *rval, rval);
 }
 
 JS_STATIC_DLL_CALLBACK(JSBool)
@@ -1063,9 +1106,8 @@ XPC_SJOW_toString(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
   }
 
   jsval val;
-  JSBool ok = ::JS_CallFunctionValue(cx, unsafeObj, scriptedFunVal, 0, nsnull,
-                                     &val);
-
+  JSBool ok = CallWithoutStatics(cx, unsafeObj, scriptedFunVal, 0, nsnull,
+                                 &val);
   return ok && WrapJSValue(cx, obj, val, rval);
 }
 

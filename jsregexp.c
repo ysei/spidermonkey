@@ -3701,21 +3701,49 @@ enum regexp_static_tinyid {
     REGEXP_STATIC_RIGHT_CONTEXT = -6
 };
 
-JSBool
-js_InitRegExpStatics(JSContext *cx, JSRegExpStatics *res)
+void
+js_InitRegExpStatics(JSContext *cx)
 {
     JS_ClearRegExpStatics(cx);
-    return js_AddRoot(cx, &res->input, "res->input");
+}
+
+JS_FRIEND_API(void)
+js_SaveAndClearRegExpStatics(JSContext *cx, JSRegExpStatics *statics,
+                             JSTempValueRooter *tvr)
+{
+    *statics = cx->regExpStatics;
+    JS_PUSH_TEMP_ROOT_STRING(cx, statics->input, tvr);
+    /*
+     * Prevent JS_ClearRegExpStatics from freeing moreParens, since we've only
+     * moved it elsewhere (into statics->moreParens).
+     */
+    cx->regExpStatics.moreParens = NULL;
+    JS_ClearRegExpStatics(cx);
+}
+
+JS_FRIEND_API(void)
+js_RestoreRegExpStatics(JSContext *cx, JSRegExpStatics *statics,
+                        JSTempValueRooter *tvr)
+{
+    /* Clear/free any new JSRegExpStatics data before clobbering. */
+    JS_ClearRegExpStatics(cx);
+    cx->regExpStatics = *statics;
+    JS_POP_TEMP_ROOT(cx, tvr);
 }
 
 void
-js_FreeRegExpStatics(JSContext *cx, JSRegExpStatics *res)
+js_TraceRegExpStatics(JSTracer *trc, JSContext *acx)
 {
-    if (res->moreParens) {
-        JS_free(cx, res->moreParens);
-        res->moreParens = NULL;
-    }
-    js_RemoveRoot(cx->runtime, &res->input);
+    JSRegExpStatics *res = &acx->regExpStatics;
+
+    if (res->input)
+        JS_CALL_STRING_TRACER(trc, res->input, "res->input");
+}
+
+void
+js_FreeRegExpStatics(JSContext *cx)
+{
+    JS_ClearRegExpStatics(cx);
 }
 
 static JSBool

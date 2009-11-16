@@ -442,7 +442,7 @@ private:
 const PRBool OBJ_IS_GLOBAL = PR_TRUE;
 const PRBool OBJ_IS_NOT_GLOBAL = PR_FALSE;
 
-class nsXPConnect : public nsIXPConnect,
+class nsXPConnect : public nsIXPConnect_1_9_0_BRANCH,
                     public nsIThreadObserver,
                     public nsSupportsWeakReference,
                     public nsCycleCollectionJSRuntime,
@@ -452,6 +452,7 @@ public:
     // all the interface method declarations...
     NS_DECL_ISUPPORTS
     NS_DECL_NSIXPCONNECT
+    NS_DECL_NSIXPCONNECT_1_9_0_BRANCH
     NS_DECL_NSITHREADOBSERVER
 
     // non-interface implementation
@@ -1259,8 +1260,17 @@ public:
     void RemoveWrappedNativeProtos();
 
     static XPCWrappedNativeScope*
+    FindInJSObjectScope(JSContext* cx, JSObject* obj,
+                        JSBool OKIfNotInitialized = JS_FALSE,
+                        XPCJSRuntime* runtime = nsnull);
+
+    static XPCWrappedNativeScope*
     FindInJSObjectScope(XPCCallContext& ccx, JSObject* obj,
-                        JSBool OKIfNotInitialized = JS_FALSE);
+                        JSBool OKIfNotInitialized = JS_FALSE)
+    {
+        return FindInJSObjectScope(ccx, obj, OKIfNotInitialized,
+                                   ccx.GetRuntime());
+    }
 
     static void
     SystemIsBeingShutDown(JSContext* cx);
@@ -2458,7 +2468,7 @@ private:
     nsXPCWrappedJSClass(XPCCallContext& ccx, REFNSIID aIID,
                         nsIInterfaceInfo* aInfo);
 
-    JSObject*  NewOutObject(JSContext* cx);
+    JSObject*  NewOutObject(JSContext* cx, JSObject* scope);
 
     JSBool IsReflectable(uint16 i) const
         {return (JSBool)(mDescriptors[i/32] & (1 << (i%32)));}
@@ -3199,6 +3209,9 @@ public:
     static void ShutDown()
         {sMainJSThread = nsnull; sMainThreadData = nsnull;}
 
+    static PRBool IsMainThread(JSContext *cx)
+        { return cx->thread == sMainJSThread; }
+
 private:
     XPCPerThreadData();
     static XPCPerThreadData* GetDataImpl(JSContext *cx);
@@ -3894,7 +3907,7 @@ public:
 
     jsval GetJSVal() const {return mJSVal;}
 
-    XPCVariant(jsval aJSVal);
+    XPCVariant(XPCCallContext& ccx, jsval aJSVal);
 
     /**
      * Convert a variant into a jsval.
@@ -3919,6 +3932,7 @@ protected:
 protected:
     nsDiscriminatedUnion mData;
     jsval                mJSVal;
+    JSBool               mReturnRawObject;
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(XPCVariant, XPCVARIANT_IID)
@@ -3927,10 +3941,10 @@ class XPCTraceableVariant: public XPCVariant,
                            public XPCRootSetElem
 {
 public:
-    XPCTraceableVariant(XPCJSRuntime *runtime, jsval aJSVal)
-        : XPCVariant(aJSVal)
+    XPCTraceableVariant(XPCCallContext& ccx, jsval aJSVal)
+        : XPCVariant(ccx, aJSVal)
     {
-        runtime->AddVariantRoot(this);
+        ccx.GetRuntime()->AddVariantRoot(this);
     }
 
     virtual ~XPCTraceableVariant();
@@ -4030,6 +4044,11 @@ inline JSObject*
 xpc_NewSystemInheritingJSObject(JSContext *cx, JSClass *clasp, JSObject *proto,
                                 JSObject *parent);
 
+inline JSBool
+xpc_SameScope(XPCWrappedNativeScope *objectscope,
+              XPCWrappedNativeScope *xpcscope,
+              JSBool *sameOrigin);
+
 nsISupports *
 XPC_GetIdentityObject(JSContext *cx, JSObject *obj);
 
@@ -4048,7 +4067,8 @@ XPC_SJOW_AttachNewConstructorObject(XPCCallContext &ccx,
                                     JSObject *aGlobalObject);
 
 JSBool
-XPC_XOW_WrapObject(JSContext *cx, JSObject *parent, jsval *vp);
+XPC_XOW_WrapObject(JSContext *cx, JSObject *parent, jsval *vp,
+                   XPCWrappedNative *wn = nsnull);
 
 #ifdef XPC_IDISPATCH_SUPPORT
 // IDispatch specific classes

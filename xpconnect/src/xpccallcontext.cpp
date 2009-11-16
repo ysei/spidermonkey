@@ -75,8 +75,6 @@ XPCCallContext::XPCCallContext(XPCContext::LangType callerLanguage,
     if(!mXPC)
         return;
 
-    NS_ADDREF(mXPC);
-
     mThreadData = XPCPerThreadData::GetData(mJSContext);
 
     if(!mThreadData)
@@ -142,6 +140,11 @@ XPCCallContext::XPCCallContext(XPCContext::LangType callerLanguage,
 
     // hook into call context chain for our thread
     mPrevCallContext = mThreadData->SetCallContext(this);
+
+    // We only need to addref xpconnect once so only do it if this is the first
+    // context in the chain.
+    if(!mPrevCallContext)
+        NS_ADDREF(mXPC);
 
     mState = HAVE_CONTEXT;
 
@@ -254,6 +257,17 @@ XPCCallContext::SetArgsAndResultPtr(uintN argc,
 {
     CHECK_STATE(HAVE_OBJECT);
 
+    if(mState < HAVE_NAME)
+    {
+        mSet = nsnull;
+        mInterface = nsnull;
+        mMember = nsnull;
+#ifdef XPC_IDISPATCH_SUPPORT
+        mIDispatchMember = nsnull;
+#endif
+        mStaticMemberIsLocal = JS_FALSE;
+    }
+
     mArgc   = argc;
     mArgv   = argv;
     mRetVal = rval;
@@ -307,6 +321,8 @@ XPCCallContext::~XPCCallContext()
 {
     // do cleanup...
 
+    PRBool shouldReleaseXPC = PR_FALSE;
+
     if(mXPCContext)
     {
         mXPCContext->SetCallingLangType(mPrevCallerLanguage);
@@ -317,6 +333,8 @@ XPCCallContext::~XPCCallContext()
 #else
         (void) mThreadData->SetCallContext(mPrevCallContext);
 #endif
+
+        shouldReleaseXPC = mPrevCallContext == nsnull;
     }
 
     if(mContextPopRequired)
@@ -377,7 +395,8 @@ XPCCallContext::~XPCCallContext()
     }
 #endif
 
-    NS_IF_RELEASE(mXPC);
+    if(shouldReleaseXPC && mXPC)
+        NS_RELEASE(mXPC);
 }
 
 XPCReadableJSStringWrapper *

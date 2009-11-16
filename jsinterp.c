@@ -163,7 +163,13 @@ js_FillPropertyCache(JSContext *cx, JSObject *obj, jsuword kshape,
         tmp = obj;
         for (;;) {
             tmp = OBJ_GET_PROTO(cx, tmp);
-            if (!tmp) {
+
+            /*
+             * We cannot cache properties coming from native objects behind
+             * non-native ones on the prototype chain. The non-natives can
+             * mutate in arbitrary way without changing any shapes.
+             */
+            if (!tmp || !OBJ_IS_NATIVE(tmp)) {
                 PCMETER(cache->noprotos++);
                 *entryp = NULL;
                 return;
@@ -811,7 +817,8 @@ js_ComputeGlobalThis(JSContext *cx, JSBool lazy, jsval *argv)
             thisp = parent;
     }
 
-    OBJ_TO_OUTER_OBJECT(cx, thisp);
+    /* Some objects (e.g., With) delegate 'this' to another object. */
+    thisp = OBJ_THIS_OBJECT(cx, thisp);
     if (!thisp)
         return NULL;
     argv[-1] = OBJECT_TO_JSVAL(thisp);
@@ -835,13 +842,8 @@ ComputeThis(JSContext *cx, JSBool lazy, jsval *argv)
             return js_ComputeGlobalThis(cx, lazy, argv);
         }
 
-        if (thisp->map->ops->thisObject) {
-            /* Some objects (e.g., With) delegate 'this' to another object. */
-            thisp = thisp->map->ops->thisObject(cx, thisp);
-            if (!thisp)
-                return NULL;
-        }
-        OBJ_TO_OUTER_OBJECT(cx, thisp);
+        /* Some objects (e.g., With) delegate 'this' to another object. */
+        thisp = OBJ_THIS_OBJECT(cx, thisp);
         if (!thisp)
             return NULL;
         argv[-1] = OBJECT_TO_JSVAL(thisp);
@@ -1074,9 +1076,8 @@ js_Invoke(JSContext *cx, uintN argc, jsval *vp, uintN flags)
          * XXX better to call that hook without converting
          * XXX the only thing that needs fixing is liveconnect
          *
-         * Try converting to function, for closure and API compatibility.
-         * We attempt the conversion under all circumstances for 1.2, but
-         * only if there is a call op defined otherwise.
+         * FIXME bug 408416: try converting to function, for API compatibility
+         * if there is a call op defined.
          */
         if ((ops == &js_ObjectOps) ? clasp->call : ops->call) {
             ok = clasp->convert(cx, funobj, JSTYPE_FUNCTION, &v);
@@ -1117,9 +1118,19 @@ have_fun:
         if (FUN_INTERPRETED(fun)) {
             native = NULL;
             script = fun->u.i.script;
+            JS_ASSERT(script);
             nvars = fun->u.i.nvars;
         } else {
             native = fun->u.n.native;
+            if (!native) {
+                /*
+                 * FIXME bug 485905: we should disallow native functions with
+                 * null fun->u.n.native.
+                 */
+                *vp = (flags & JSINVOKE_CONSTRUCT) ? vp[1] : JSVAL_VOID;
+                ok = JS_TRUE;
+                goto out2;
+            }
             script = NULL;
             nvars = 0;
             nslots += fun->u.n.extra;
@@ -1258,6 +1269,7 @@ have_fun:
     frame.down = cx->fp;
     frame.annotation = NULL;
     frame.scopeChain = NULL;    /* set below for real, after cx->fp is set */
+    frame.blockChain = NULL;
     frame.regs = NULL;
     frame.spbase = NULL;
     frame.sharpDepth = 0;
@@ -1265,7 +1277,6 @@ have_fun:
     frame.flags = flags | rootedArgsFlag;
     frame.dormantNext = NULL;
     frame.xmlNamespace = NULL;
-    frame.blockChain = NULL;
 
     /* From here on, control must flow through label out: to return. */
     cx->fp = &frame;
@@ -1274,8 +1285,32 @@ have_fun:
     hook = cx->debugHooks->callHook;
     hookData = NULL;
 
-    /* call the hook if present */
-    if (hook && (native || script))
+    if (native) {
+        /* If native, use caller varobj and scopeChain for eval. */
+        JS_ASSERT(!frame.varobj);
+        JS_ASSERT(!frame.scopeChain);
+        if (frame.down) {
+            frame.varobj = frame.down->varobj;
+            frame.scopeChain = frame.down->scopeChain;
+        }
+
+        /* But ensure that we have a scope chain. */
+        if (!frame.scopeChain)
+            frame.scopeChain = parent;
+    } else {
+        /* Use parent scope so js_GetCallObject can find the right "Call". */
+        frame.scopeChain = parent;
+        if (JSFUN_HEAVYWEIGHT_TEST(fun->flags)) {
+            /* Scope with a call object parented by the callee's parent. */
+            if (!js_GetCallObject(cx, &frame, parent)) {
+                ok = JS_FALSE;
+                goto out;
+            }
+        }
+    }
+
+    /* Call the hook if present after we fully initialized the frame. */
+    if (hook)
         hookData = hook(cx, &frame, JS_TRUE, 0, cx->debugHooks->callHookData);
 
     /* Call the function, either a native method or an interpreted script. */
@@ -1288,40 +1323,15 @@ have_fun:
         /* Set by JS_SetCallReturnValue2, used to return reference types. */
         cx->rval2set = JS_FALSE;
 #endif
-
-        /* If native, use caller varobj and scopeChain for eval. */
-        JS_ASSERT(!frame.varobj);
-        JS_ASSERT(!frame.scopeChain);
-        if (frame.down) {
-            frame.varobj = frame.down->varobj;
-            frame.scopeChain = frame.down->scopeChain;
-        }
-
-        /* But ensure that we have a scope chain. */
-        if (!frame.scopeChain)
-            frame.scopeChain = parent;
-
         ok = native(cx, frame.thisp, argc, frame.argv, &frame.rval);
         JS_RUNTIME_METER(cx->runtime, nativeCalls);
 #ifdef DEBUG_NOT_THROWING
         if (ok && !alreadyThrowing)
             ASSERT_NOT_THROWING(cx);
 #endif
-    } else if (script) {
-        /* Use parent scope so js_GetCallObject can find the right "Call". */
-        frame.scopeChain = parent;
-        if (JSFUN_HEAVYWEIGHT_TEST(fun->flags)) {
-            /* Scope with a call object parented by the callee's parent. */
-            if (!js_GetCallObject(cx, &frame, parent)) {
-                ok = JS_FALSE;
-                goto out;
-            }
-        }
-        ok = js_Interpret(cx);
     } else {
-        /* fun might be onerror trying to report a syntax error in itself. */
-        frame.scopeChain = NULL;
-        ok = JS_TRUE;
+        JS_ASSERT(script);
+        ok = js_Interpret(cx);
     }
 
 out:
@@ -1530,7 +1540,7 @@ js_Execute(JSContext *cx, JSObject *chain, JSScript *script,
 
     cx->fp = &frame;
     if (!down) {
-        OBJ_TO_OUTER_OBJECT(cx, frame.thisp);
+        frame.thisp = OBJ_THIS_OBJECT(cx, frame.thisp);
         if (!frame.thisp) {
             ok = JS_FALSE;
             goto out2;
