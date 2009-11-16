@@ -349,16 +349,12 @@ XPC_XOW_FunctionWrapper(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
     return ThrowException(rv, cx);
   }
 
+#ifdef DEBUG
   JSNative native = JS_GetFunctionNative(cx, fun);
   NS_ASSERTION(native, "How'd we get here with a scripted function?");
+#endif
 
-  // A trick! Calling the native directly doesn't push the native onto the
-  // JS stack, so interested onlookers will only see us, meaning that they
-  // will compute *our* subject principal.
-
-  argv[-2] = funToCall;
-  argv[-1] = OBJECT_TO_JSVAL(wrappedObj);
-  if (!native(cx, wrappedObj, argc, argv, rval)) {
+  if (!JS_CallFunctionValue(cx, wrappedObj, funToCall, argc, argv, rval)) {
     return JS_FALSE;
   }
 
@@ -420,8 +416,10 @@ XPC_XOW_WrapFunction(JSContext *cx, JSObject *outerObj, JSObject *funobj,
   JSObject *funWrapperObj = JS_GetFunctionObject(funWrapper);
   *rval = OBJECT_TO_JSVAL(funWrapperObj);
 
-  if (!JS_SetReservedSlot(cx, funWrapperObj, XPCWrapper::eWrappedFunctionSlot, funobjVal) ||
-      !JS_SetReservedSlot(cx, funWrapperObj, XPCWrapper::eAllAccessSlot, JSVAL_FALSE)) {
+  if (!JS_SetReservedSlot(cx, funWrapperObj, XPCWrapper::eWrappedFunctionSlot,
+                          funobjVal) ||
+      !JS_SetReservedSlot(cx, funWrapperObj, XPCWrapper::eAllAccessSlot,
+                          JSVAL_FALSE)) {
     return JS_FALSE;
   }
 
@@ -442,14 +440,15 @@ XPC_XOW_RewrapIfNeeded(JSContext *cx, JSObject *outerObj, jsval *vp)
     return XPC_XOW_WrapFunction(cx, outerObj, obj, vp);
   }
 
+  XPCWrappedNative *wn = nsnull;
   if (STOBJ_GET_CLASS(obj) == &sXPC_XOW_JSClass.base &&
       STOBJ_GET_PARENT(outerObj) != STOBJ_GET_PARENT(obj)) {
     *vp = OBJECT_TO_JSVAL(GetWrappedObject(cx, obj));
-  } else if (!XPCWrappedNative::GetWrappedNativeOfJSObject(cx, obj)) {
+  } else if (!(wn = XPCWrappedNative::GetAndMorphWrappedNativeOfJSObject(cx, obj))) {
     return JS_TRUE;
   }
 
-  return XPC_XOW_WrapObject(cx, JS_GetGlobalForObject(cx, outerObj), vp);
+  return XPC_XOW_WrapObject(cx, JS_GetGlobalForObject(cx, outerObj), vp, wn);
 }
 
 JSBool
@@ -469,7 +468,7 @@ XPC_XOW_WrapObject(JSContext *cx, JSObject *parent, jsval *vp,
   }
 
   if (!wn &&
-      !(wn = XPCWrappedNative::GetWrappedNativeOfJSObject(cx, wrappedObj))) {
+      !(wn = XPCWrappedNative::GetAndMorphWrappedNativeOfJSObject(cx, wrappedObj))) {
     return JS_TRUE;
   }
 
@@ -667,12 +666,8 @@ XPC_XOW_GetOrSetProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp,
       }
     }
 
-    if (!XPCWrapper::GetOrSetNativeProperty(cx, obj, wn, id, vp, isSet,
-                                            JS_FALSE)) {
-      return JS_FALSE;
-    }
-
-    return XPC_XOW_RewrapIfNeeded(cx, obj, vp);
+    return XPCWrapper::GetOrSetNativeProperty(cx, obj, wn, id, vp, isSet,
+                                              JS_FALSE);
   }
 
   JSObject *proto = nsnull; // Initialize this to quiet GCC.

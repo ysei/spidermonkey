@@ -401,10 +401,11 @@ UnwrapJSValue(jsval val)
 // create a new one and cache it in that same slot. The source of the
 // script is passed in funScript, and the resulting (new or cached)
 // scripted function is returned through scriptedFunVal.
+/* Keep GetScriptedFunction prototype in sync with corresponding macro */
 static JSBool
 GetScriptedFunction(JSContext *cx, JSObject *obj, JSObject *unsafeObj,
                     uint32 slotIndex, const nsAFlatCString& funScript,
-                    jsval *scriptedFunVal)
+                    jsval *scriptedFunVal, uintN lineno)
 {
   if (!::JS_GetReservedSlot(cx, obj, slotIndex, scriptedFunVal)) {
     return JS_FALSE;
@@ -447,7 +448,7 @@ GetScriptedFunction(JSContext *cx, JSObject *obj, JSObject *unsafeObj,
                                         jsprin, nsnull, 0, nsnull,
                                         funScript.get(), funScript.Length(),
                                         "XPCSafeJSObjectWrapper.cpp",
-                                        __LINE__);
+                                        lineno);
 
     JSPRINCIPALS_DROP(cx, jsprin);
 
@@ -466,6 +467,8 @@ GetScriptedFunction(JSContext *cx, JSObject *obj, JSObject *unsafeObj,
   return JS_TRUE;
 }
 
+#define GetScriptedFunction(cx, obj, unsafeObj, slotIndex, funScript, scriptedFunVal) \
+  (GetScriptedFunction)(cx, obj, unsafeObj, slotIndex, funScript, scriptedFunVal, __LINE__)
 
 static JSBool
 XPC_SJOW_AddProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp)
@@ -524,12 +527,12 @@ static inline JSBool
 CallWithoutStatics(JSContext *cx, JSObject *obj, jsval fval, uintN argc,
                    jsval *argv, jsval *rval)
 {
-  JSRegExpStatics statics;
-  JSTempValueRooter tvr;
-  js_SaveAndClearRegExpStatics(cx, &statics, &tvr);
-  JSBool ok = ::JS_CallFunctionValue(cx, obj, fval, argc, argv, rval);
-  js_RestoreRegExpStatics(cx, &statics, &tvr);
-  return ok;
+    JSRegExpStatics statics;
+    JSTempValueRooter tvr;
+    js_SaveAndClearRegExpStatics(cx, &statics, &tvr);
+    JSBool ok = ::JS_CallFunctionValue(cx, obj, fval, argc, argv, rval);
+    js_RestoreRegExpStatics(cx, &statics, &tvr);
+    return ok;
 }
 
 // Call wrapper to help with wrapping calls to functions or callable
@@ -850,6 +853,10 @@ XPC_SJOW_Call(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
   jsval argsBuf[8];
   jsval *args = argsBuf;
 
+  tmp = ::JS_GetFunctionObject(callWrapper);
+  if (!tmp)
+    return JS_FALSE;
+
   if (argc > 7) {
     args = (jsval *)nsMemory::Alloc((argc + 2) * sizeof(jsval *));
     if (!args) {
@@ -857,12 +864,8 @@ XPC_SJOW_Call(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
     }
   }
 
-  args[0] = OBJECT_TO_JSVAL(::JS_GetFunctionObject(callWrapper));
+  args[0] = OBJECT_TO_JSVAL(tmp);
   args[1] = OBJECT_TO_JSVAL(funToCall);
-
-  if (args[0] == JSVAL_NULL) {
-    return JS_FALSE;
-  }
 
   for (uintN i = 0; i < argc; ++i) {
     args[i + 2] = UnwrapJSValue(argv[i]);
@@ -914,15 +917,9 @@ XPC_SJOW_Construct(JSContext *cx, JSObject *obj, uintN argc, jsval *argv,
     return ThrowException(NS_ERROR_INVALID_ARG, cx);
   }
 
-  if (STOBJ_GET_CLASS(objToWrap) == &sXPC_XOW_JSClass.base) {
-    // We're being asked to wrap a XOW. By using XPCWrapper::Unwrap,
-    // we guarantee that the wrapped object is same-origin to us. If
-    // it isn't, then just wrap the XOW for an added layer of wrapping.
-
-    JSObject *maybeInner = XPCWrapper::Unwrap(cx, objToWrap);
-    if (maybeInner) {
-      objToWrap = maybeInner;
-    }
+  SLIM_LOG_WILL_MORPH(cx, objToWrap);
+  if(IS_SLIM_WRAPPER(objToWrap) && !MorphSlimWrapper(cx, objToWrap)) {
+    return ThrowException(NS_ERROR_FAILURE, cx);
   }
 
   // Check that the caller can access the unsafe object.
@@ -1028,6 +1025,18 @@ XPC_SJOW_Iterator(JSContext *cx, JSObject *obj, JSBool keysonly)
   if (!CanCallerAccess(cx, unsafeObj)) {
     // CanCallerAccess() already threw for us.
     return nsnull;
+  }
+
+  JSObject *tmp = XPCWrapper::UnwrapGeneric(cx, &sXPC_XOW_JSClass, unsafeObj);
+  if (tmp) {
+    unsafeObj = tmp;
+
+    // Repeat the CanCallerAccess check because the XOW is parented to our
+    // scope's global object which makes the above CanCallerAccess call lie.
+    if (!CanCallerAccess(cx, unsafeObj)) {
+      // CanCallerAccess() already threw for us.
+      return nsnull;
+    }
   }
 
   // Create our dummy SJOW.
