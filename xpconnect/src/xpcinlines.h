@@ -280,13 +280,6 @@ XPCCallContext::GetRetVal() const
 }
 
 inline JSBool
-XPCCallContext::GetExceptionWasThrown() const
-{
-    CHECK_STATE(READY_TO_CALL);
-    return mExceptionWasThrown;
-}
-
-inline JSBool
 XPCCallContext::GetReturnValueWasSet() const
 {
     CHECK_STATE(READY_TO_CALL);
@@ -715,15 +708,12 @@ XPCWrappedNative::SweepTearOffs()
 inline JSBool
 xpc_ForcePropertyResolve(JSContext* cx, JSObject* obj, jsval idval)
 {
-    JSProperty* prop;
-    JSObject* obj2;
-    jsid id;    
+    jsval prop;
+    jsid id;
 
     if(!JS_ValueToId(cx, idval, &id) ||
-       !OBJ_LOOKUP_PROPERTY(cx, obj, id, &obj2, &prop))
+       !JS_LookupPropertyById(cx, obj, id, &prop))
         return JS_FALSE;
-    if(prop)
-        OBJ_DROP_PROPERTY(cx, obj2, prop);
     return JS_TRUE;
 }
 
@@ -759,11 +749,7 @@ xpc_SameScope(XPCWrappedNativeScope *objectscope, XPCWrappedNativeScope *xpcscop
 inline jsval
 GetRTStringByIndex(JSContext *cx, uintN index)
 {
-  XPCJSRuntime *rt = nsXPConnect::GetRuntime();
-
-  if (!rt)
-    return JSVAL_VOID;
-
+  XPCJSRuntime *rt = nsXPConnect::GetRuntimeInstance();
   return ID_TO_VALUE(rt->GetStringID(index));
 }
 

@@ -85,7 +85,8 @@ XPCCallContext::XPCCallContext(XPCContext::LangType callerLanguage,
 
     if(!stack || NS_FAILED(stack->Peek(&topJSContext)))
     {
-        NS_ERROR("bad!");
+        // If we don't have a stack we're probably in shutdown.
+        NS_ASSERTION(!stack, "Bad, Peek failed!");
         mJSContext = nsnull;
         return;
     }
@@ -122,20 +123,7 @@ XPCCallContext::XPCCallContext(XPCContext::LangType callerLanguage,
         mContextPopRequired = JS_TRUE;
     }
 
-    // Try to get the JSContext -> XPCContext mapping from the cache.
-    // FWIW... quicky tests show this hitting ~ 95% of the time.
-    // That is a *lot* of locking we can skip in nsXPConnect::GetContext.
-    mXPCContext = mThreadData->GetRecentXPCContext(mJSContext);
-
-    if(!mXPCContext)
-    {
-        if(!(mXPCContext = nsXPConnect::GetContext(mJSContext, mXPC)))
-            return;
-
-        // Fill the cache.
-        mThreadData->SetRecentContext(mJSContext, mXPCContext);
-    }
-
+    mXPCContext = XPCContext::GetXPCContext(mJSContext);
     mPrevCallerLanguage = mXPCContext->SetCallingLangType(mCallerLanguage);
 
     // hook into call context chain for our thread
@@ -230,6 +218,8 @@ void
 XPCCallContext::SetCallInfo(XPCNativeInterface* iface, XPCNativeMember* member,
                             JSBool isSetter)
 {
+    CHECK_STATE(HAVE_CONTEXT);
+
     // We are going straight to the method info and need not do a lookup
     // by id.
 
@@ -257,22 +247,11 @@ XPCCallContext::SetArgsAndResultPtr(uintN argc,
 {
     CHECK_STATE(HAVE_OBJECT);
 
-    if(mState < HAVE_NAME)
-    {
-        mSet = nsnull;
-        mInterface = nsnull;
-        mMember = nsnull;
-#ifdef XPC_IDISPATCH_SUPPORT
-        mIDispatchMember = nsnull;
-#endif
-        mStaticMemberIsLocal = JS_FALSE;
-    }
-
     mArgc   = argc;
     mArgv   = argv;
     mRetVal = rval;
 
-    mExceptionWasThrown = mReturnValueWasSet = JS_FALSE;
+    mReturnValueWasSet = JS_FALSE;
     mState = HAVE_ARGS;
 }
 
@@ -370,14 +349,13 @@ XPCCallContext::~XPCCallContext()
                          "JSContext still in threadjscontextstack!");
         
             JS_DestroyContext(mJSContext);
-            mXPC->SyncJSContexts();
         }
         else
         {
             // Don't clear newborns if JS frames (compilation or execution)
             // are active!  Doing so violates ancient invariants in the JS
             // engine, and it's not necessary to fix JS component leaks.
-            if(!mJSContext->fp)
+            if(!JS_IsRunning(mJSContext))
                 JS_ClearNewbornRoots(mJSContext);
         }
     }
@@ -532,20 +510,6 @@ XPCCallContext::GetRetValPtr(jsval * *aRetValPtr)
     return NS_OK;
 }
 
-/* attribute PRBool ExceptionWasThrown; */
-NS_IMETHODIMP
-XPCCallContext::GetExceptionWasThrown(PRBool *aExceptionWasThrown)
-{
-    *aExceptionWasThrown = mExceptionWasThrown;
-    return NS_OK;
-}
-NS_IMETHODIMP
-XPCCallContext::SetExceptionWasThrown(PRBool aExceptionWasThrown)
-{
-    mExceptionWasThrown = aExceptionWasThrown;
-    return NS_OK;
-}
-
 /* attribute PRBool ReturnValueWasSet; */
 NS_IMETHODIMP
 XPCCallContext::GetReturnValueWasSet(PRBool *aReturnValueWasSet)
@@ -566,6 +530,8 @@ void
 XPCCallContext::SetIDispatchInfo(XPCNativeInterface* iface, 
                                  void * member)
 {
+    CHECK_STATE(HAVE_CONTEXT);
+
     // We are going straight to the method info and need not do a lookup
     // by id.
 
@@ -584,3 +550,19 @@ XPCCallContext::SetIDispatchInfo(XPCNativeInterface* iface,
 }
 
 #endif
+
+NS_IMETHODIMP
+XPCCallContext::GetPreviousCallContext(nsAXPCNativeCallContext **aResult)
+{
+  NS_ENSURE_ARG_POINTER(aResult);
+  *aResult = GetPrevCallContext();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+XPCCallContext::GetLanguage(PRUint16 *aResult)
+{
+  NS_ENSURE_ARG_POINTER(aResult);
+  *aResult = GetCallerLanguage();
+  return NS_OK;
+}

@@ -68,7 +68,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=484107
     is(text, window.firstMatch, "Getter window.firstMatch did not return matched text.");
   }
 
-  // XXX The XPC_SJOW_Create function doesn't exist on the 1.9.0 branch!
   function test_XPC_SJOW_Create() {
     function ctor() {
       this.match = RegExp.$1;
@@ -85,8 +84,8 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=484107
     test_XPC_SJOW_Call,
     test_XPC_SJOW_Call_foreign_obj,
     test_XPC_SJOW_toString,
-    test_XPC_SJOW_GetOrSetProperty//,
-    // test_XPC_SJOW_Create
+    test_XPC_SJOW_GetOrSetProperty,
+    test_XPC_SJOW_Create
   ];
 
   for (var i = 0; i < tests.length; i++) {
