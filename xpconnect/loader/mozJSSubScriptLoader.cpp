@@ -60,8 +60,6 @@
 #include "jsapi.h"
 #include "jsdbgapi.h"
 
-static NS_DEFINE_CID(kIOServiceCID,              NS_IOSERVICE_CID);
-
 /* load() error msgs, XXX localize? */
 #define LOAD_ERROR_NOSERVICE "Error creating IO Service."
 #define LOAD_ERROR_NOURI "Error creating URI (invalid URL scheme?)"
@@ -113,8 +111,8 @@ mozJSSubScriptLoader::LoadSubScript (const PRUnichar * /*url*/
     nsCOMPtr<nsIXPConnect> xpc = do_GetService(nsIXPConnect::GetCID());
     if (!xpc) return NS_ERROR_FAILURE;
 
-    nsCOMPtr<nsIXPCNativeCallContext> cc;
-    rv = xpc->GetCurrentNativeCallContext(getter_AddRefs(cc));
+    nsAXPCNativeCallContext *cc = nsnull;
+    rv = xpc->GetCurrentNativeCallContext(&cc);
     if (NS_FAILED(rv)) return NS_ERROR_FAILURE;
 
     JSContext *cx;
@@ -145,6 +143,8 @@ mozJSSubScriptLoader::LoadSubScript (const PRUnichar * /*url*/
         if (NS_FAILED(rv) || !mSystemPrincipal)
             return rv;
     }
+
+    JSAutoRequest ar(cx);
 
     char     *url;
     JSObject *target_obj = nsnull;
@@ -213,7 +213,8 @@ mozJSSubScriptLoader::LoadSubScript (const PRUnichar * /*url*/
     /* load up the url.  From here on, failures are reflected as ``custom''
      * js exceptions */
     PRInt32   len = -1;
-    PRUint32  readcount;
+    PRUint32  readcount = 0;  // Total amount of data read
+    PRUint32  lastReadCount = 0;  // Amount of data read in last Read() call
     nsAutoArrayPtr<char> buf;
     
     JSString        *errmsg;
@@ -245,7 +246,7 @@ mozJSSubScriptLoader::LoadSubScript (const PRUnichar * /*url*/
         return NS_ERROR_FAILURE;
     }
 
-    nsCOMPtr<nsIIOService> serv = do_GetService(kIOServiceCID);
+    nsCOMPtr<nsIIOService> serv = do_GetService(NS_IOSERVICE_CONTRACTID);
     if (!serv)
     {
         errmsg = JS_NewStringCopyZ (cx, LOAD_ERROR_NOSERVICE);
@@ -311,15 +312,19 @@ mozJSSubScriptLoader::LoadSubScript (const PRUnichar * /*url*/
     buf = new char[len + 1];
     if (!buf)
         return NS_ERROR_OUT_OF_MEMORY;
+    buf[len] = '\0';
     
-    rv = instream->Read (buf, len, &readcount);
-    if (NS_FAILED(rv))
-    {
-        errmsg = JS_NewStringCopyZ (cx, LOAD_ERROR_BADREAD);
-        goto return_exception;
-    }
+    do {
+        rv = instream->Read (buf + readcount, len - readcount, &lastReadCount);
+        if (NS_FAILED(rv))
+        {
+            errmsg = JS_NewStringCopyZ (cx, LOAD_ERROR_BADREAD);
+            goto return_exception;
+        }
+        readcount += lastReadCount;
+    } while (lastReadCount && readcount != PRUint32(len));
     
-    if (NS_STATIC_CAST(PRUint32, len) != readcount)
+    if (static_cast<PRUint32>(len) != readcount)
     {
         errmsg = JS_NewStringCopyZ (cx, LOAD_ERROR_READUNDERFLOW);
         goto return_exception;

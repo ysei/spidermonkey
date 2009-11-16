@@ -1,4 +1,5 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sw=4 et tw=80:
  *
  * ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
@@ -13,15 +14,10 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is Mozilla Communicator client code, released
- * March 31, 1998.
- *
- * The Initial Developer of the Original Code is
- * Netscape Communications Corporation.
- * Portions created by the Initial Developer are Copyright (C) 1998
- * the Initial Developer. All Rights Reserved.
+ * Copyright (C) 2007  Sun Microsystems, Inc. All Rights Reserved.
  *
  * Contributor(s):
+ *      Brendan Eich <brendan@mozilla.org>
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either of the GNU General Public License Version 2 or later (the "GPL"),
@@ -37,79 +33,45 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#ifndef jsosdep_h___
-#define jsosdep_h___
-/*
- * OS (and machine, and compiler XXX) dependent information.
- */
+#include "javascript-trace.h"
+#include "jspubtd.h"
+#include "jsprvtd.h"
 
-#if defined(XP_WIN) || defined(XP_OS2)
+#ifndef _JSDTRACEF_H
+#define _JSDTRACEF_H
 
-#if defined(_WIN32) || defined (XP_OS2)
-#define JS_HAVE_LONG_LONG
-#else
-#undef JS_HAVE_LONG_LONG
-#endif
-#endif /* XP_WIN || XP_OS2 */
+extern void
+jsdtrace_function_entry(JSContext *cx, JSStackFrame *fp, JSFunction *fun);
 
-#ifdef XP_BEOS
-#define JS_HAVE_LONG_LONG
-#endif
+extern void
+jsdtrace_function_info(JSContext *cx, JSStackFrame *fp, JSStackFrame *dfp,
+                       JSFunction *fun);
 
+extern void
+jsdtrace_function_args(JSContext *cx, JSStackFrame *fp, JSFunction *fun);
 
-#ifdef XP_UNIX
+extern void
+jsdtrace_function_rval(JSContext *cx, JSStackFrame *fp, JSFunction *fun);
 
-/*
- * Get OS specific header information.
- */
-#if defined(XP_MACOSX) || defined(DARWIN)
-#define JS_HAVE_LONG_LONG
+extern void
+jsdtrace_function_return(JSContext *cx, JSStackFrame *fp, JSFunction *fun);
 
-#elif defined(AIXV3) || defined(AIX)
-#define JS_HAVE_LONG_LONG
+extern void
+jsdtrace_object_create_start(JSStackFrame *fp, JSClass *clasp);
 
-#elif defined(BSDI)
-#define JS_HAVE_LONG_LONG
+extern void
+jsdtrace_object_create_done(JSStackFrame *fp, JSClass *clasp);
 
-#elif defined(HPUX)
-#define JS_HAVE_LONG_LONG
+extern void
+jsdtrace_object_create(JSContext *cx, JSClass *clasp, JSObject *obj);
 
-#elif defined(IRIX)
-#define JS_HAVE_LONG_LONG
+extern void
+jsdtrace_object_finalize(JSObject *obj);
 
-#elif defined(linux)
-#define JS_HAVE_LONG_LONG
+extern void
+jsdtrace_execute_start(JSScript *script);
 
-#elif defined(OSF1)
-#define JS_HAVE_LONG_LONG
+extern void
+jsdtrace_execute_done(JSScript *script);
 
-#elif defined(_SCO_DS)
-#undef JS_HAVE_LONG_LONG
-
-#elif defined(SOLARIS)
-#define JS_HAVE_LONG_LONG
-
-#elif defined(FREEBSD)
-#define JS_HAVE_LONG_LONG
-
-#elif defined(SUNOS4)
-#undef JS_HAVE_LONG_LONG
-
-/*
-** Missing function prototypes
-*/
-
-extern void *sbrk(int);
-
-#elif defined(UNIXWARE)
-#undef JS_HAVE_LONG_LONG
-
-#elif defined(VMS) && defined(__ALPHA)
-#define JS_HAVE_LONG_LONG
-
-#endif
-
-#endif /* XP_UNIX */
-
-#endif /* jsosdep_h___ */
-
+#endif /* _JSDTRACE_H */

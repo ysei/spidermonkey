@@ -44,8 +44,7 @@ VPATH		= @srcdir@
 include $(DEPTH)/config/autoconf.mk
 
 MODULE		= xpcshell
-SIMPLE_PROGRAMS	= xpcshell$(BIN_SUFFIX)
-MOZILLA_INTERNAL_API = 1
+PROGRAM		= xpcshell$(BIN_SUFFIX)
 
 REQUIRES	= xpconnect \
 		  xpcom \
@@ -55,7 +54,12 @@ REQUIRES	= xpconnect \
 
 CPPSRCS		= xpcshell.cpp
 
+ifneq (,$(filter mac cocoa,$(MOZ_WIDGET_TOOLKIT)))
+CMMSRCS += xpcshellMacUtils.mm
+endif
+
 LIBS		= \
+		$(DIST)/lib/$(LIB_PREFIX)xpcomglue_s.$(LIB_SUFFIX) \
 		$(MOZ_JS_LIBS) \
 		$(XPCOM_LIBS) \
 		$(NSPR_LIBS) \
@@ -64,6 +68,12 @@ LIBS		= \
 include $(topsrcdir)/config/rules.mk
 
 DEFINES		+= -DJS_THREADSAFE
+
+ifdef MOZ_SHARK
+DEFINES += -DMOZ_SHARK
+CFLAGS += -F/System/Library/PrivateFrameworks
+LDFLAGS += -F/System/Library/PrivateFrameworks -framework CHUD
+endif
 
 #
 # Line editing support.  If your OS supplies the readline library, define
