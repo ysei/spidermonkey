@@ -3684,11 +3684,12 @@ js_DefineNativeProperty(JSContext *cx, JSObject *obj, jsid id, jsval value,
         /* Add a new property, or replace an existing one of the same id. */
         if (clasp->flags & JSCLASS_SHARE_ALL_PROPERTIES)
             attrs |= JSPROP_SHARED;
+
+        added = !scope->lookup(id);
         sprop = scope->add(cx, id, getter, setter, SPROP_INVALID_SLOT, attrs,
                            flags, shortid);
         if (!sprop)
             goto error;
-        added = true;
     }
 
     /* Store value before calling addProperty, in case the latter GC's. */

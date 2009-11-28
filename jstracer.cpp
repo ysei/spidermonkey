@@ -2538,7 +2538,6 @@ ReplenishReservedPool(JSContext* cx, JSTraceMonitor* tm)
         /* Check if the last call to js_NewDoubleInRootedValue GC'd. */
         if (rt->gcNumber != lastgcNumber) {
             lastgcNumber = rt->gcNumber;
-            JS_ASSERT(tm->reservedDoublePoolPtr == tm->reservedDoublePool);
             ptr = tm->reservedDoublePool;
 
             /*
@@ -2586,6 +2585,8 @@ JSTraceMonitor::flush()
 
     dataAlloc->reset();
     codeAlloc->reset();
+    tempAlloc->reset();
+    reTempAlloc->reset();
 
     Allocator& alloc = *dataAlloc;
 
@@ -2611,6 +2612,24 @@ JSTraceMonitor::flush()
     needFlush = JS_FALSE;
 }
 
+static inline void
+MarkTreeInfo(JSTracer* trc, TreeInfo *ti)
+{
+    jsval* vp = ti->gcthings.data();
+    unsigned len = ti->gcthings.length();
+    while (len--) {
+        jsval v = *vp++;
+        JS_SET_TRACING_NAME(trc, "jitgcthing");
+        JS_CallTracer(trc, JSVAL_TO_TRACEABLE(v), JSVAL_TRACE_KIND(v));
+    }
+    JSScopeProperty** spropp = ti->sprops.data();
+    len = ti->sprops.length();
+    while (len--) {
+        JSScopeProperty* sprop = *spropp++;
+        sprop->trace(trc);
+    }
+}
+
 void
 JSTraceMonitor::mark(JSTracer* trc)
 {
@@ -2618,29 +2637,20 @@ JSTraceMonitor::mark(JSTracer* trc)
         for (size_t i = 0; i < FRAGMENT_TABLE_SIZE; ++i) {
             VMFragment* f = vmfragments[i];
             while (f) {
-                TreeInfo* ti = (TreeInfo*)f->vmprivate;
-                if (ti) {
-                    jsval* vp = ti->gcthings.data();
-                    unsigned len = ti->gcthings.length();
-                    while (len--) {
-                        jsval v = *vp++;
-                        JS_SET_TRACING_NAME(trc, "jitgcthing");
-                        JS_CallTracer(trc, JSVAL_TO_TRACEABLE(v), JSVAL_TRACE_KIND(v));
-                    }
-                    JSScopeProperty** spropp = ti->sprops.data();
-                    len = ti->sprops.length();
-                    while (len--) {
-                        JSScopeProperty* sprop = *spropp++;
-                        sprop->trace(trc);
-                    }
+                if (TreeInfo* ti = (TreeInfo*)f->vmprivate)
+                    MarkTreeInfo(trc, ti);
+                VMFragment* peer = (VMFragment*)f->peer;
+                while (peer) {
+                    if (TreeInfo* ti = (TreeInfo*)peer->vmprivate)
+                        MarkTreeInfo(trc, ti);
+                    peer = (VMFragment*)peer->peer;
                 }
                 f = f->next;
             }
         }
-        return;
+        if (recorder)
+            MarkTreeInfo(trc, recorder->getTreeInfo());
     }
-
-    flush();
 }
 
 /*
@@ -5348,9 +5358,12 @@ RecordTree(JSContext* cx, JSTraceMonitor* tm, VMFragment* f, jsbytecode* outer,
 {
     JS_ASSERT(f->root == f);
 
+    /* save a local copy for use after JIT flush */
+    const void* localRootIP = f->root->ip;
+
     /* Make sure the global type map didn't change on us. */
     if (!CheckGlobalObjectShape(cx, tm, globalObj)) {
-        Backoff(cx, (jsbytecode*) f->root->ip);
+        Backoff(cx, (jsbytecode*) localRootIP);
         return false;
     }
 
@@ -6294,7 +6307,6 @@ LeaveTree(InterpState& state, VMSideExit* lr)
                          cx->fp->slots + cx->fp->script->nfixed +
                          js_ReconstructStackDepth(cx, cx->fp->script, regs->pc) ==
                          regs->sp);
-            JS_ASSERT(regs->pc == innermost->pc);
 
             /*
              * If there's a tree call around the point that we deep exited at,
@@ -7722,11 +7734,13 @@ TraceRecorder::alu(LOpcode v, jsdouble v0, jsdouble v1, LIns* s0, LIns* s1)
     case LIR_fsub:
         r = v0 - v1;
         break;
+#if !defined NANOJIT_ARM
     case LIR_fmul:
         r = v0 * v1;
         if (r == 0.0)
             goto out;
         break;
+#endif
 #if defined NANOJIT_IA32 || defined NANOJIT_X64
     case LIR_fdiv:
         if (v1 == 0)
@@ -11192,6 +11206,9 @@ TraceRecorder::record_JSOP_SETELEM()
     LIns* obj_ins = get(&lval);
     LIns* idx_ins = get(&idx);
     LIns* v_ins = get(&v);
+
+    if (JS_InstanceOf(cx, obj, &js_ArgumentsClass, NULL))
+        ABORT_TRACE("can't trace setting elements of the |arguments| object");
 
     if (!JSVAL_IS_INT(idx)) {
         if (!JSVAL_IS_PRIMITIVE(idx))

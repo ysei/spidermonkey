@@ -64,11 +64,6 @@ const char* XPCJSRuntime::mStrings[] = {
     "__iterator__",         // IDX_ITERATOR
     "__parent__",           // IDX_PARENT
     "__exposedProps__"      // IDX_EXPOSEDPROPS
-#ifdef XPC_IDISPATCH_SUPPORT
-    , "GeckoActiveXObject"  // IDX_ACTIVEX_OBJECT
-    , "COMObject"           // IDX_COMOBJECT
-    , "supports"            // IDX_ACTIVEX_SUPPORTS
-#endif
 };
 
 /***************************************************************************/
