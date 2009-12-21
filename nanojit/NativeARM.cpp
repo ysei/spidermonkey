@@ -830,7 +830,7 @@ Assembler::asm_call(LInsp ins)
     // R0/R1. We need to either place it in the result fp reg, or store it.
     // See comments in asm_prep_fcall() for more details as to why this is
     // necessary here for floating point calls, but not for integer calls.
-    if (ARM_VFP) {
+    if (ARM_VFP && ins->isUsed()) {
         // Determine the size (and type) of the instruction result.
         ArgSize         rsize = (ArgSize)(call->_argtypes & ARGSIZE_MASK_ANY);
 
@@ -933,7 +933,7 @@ Assembler::nRegisterResetAll(RegAlloc& a)
     a.free =
         rmask(R0) | rmask(R1) | rmask(R2) | rmask(R3) | rmask(R4) |
         rmask(R5) | rmask(R6) | rmask(R7) | rmask(R8) | rmask(R9) |
-        rmask(R10);
+        rmask(R10) | rmask(LR);
     if (ARM_VFP)
         a.free |= FpRegs;
 
@@ -1357,7 +1357,7 @@ Assembler::asm_mmq(Register rd, int dd, Register rs, int ds)
     // Find the list of free registers from the allocator's free list and the
     // GpRegs mask. This excludes any floating-point registers that may be on
     // the free list.
-    RegisterMask    free = _allocator.free & GpRegs;
+    RegisterMask    free = _allocator.free & AllowableFlagRegs;
 
     if (free) {
         // There is at least one register on the free list, so grab one for
@@ -1869,9 +1869,12 @@ Assembler::asm_fcmp(LInsp ins)
 
     NanoAssert(op >= LIR_feq && op <= LIR_fge);
 
+    Reservation *rA, *rB;
+    findRegFor2(FpRegs, lhs, rA, rhs, rB);
+    Register ra = rA->reg;
+    Register rb = rB->reg;
+
     int e_bit = (op != LIR_feq);
-    Register ra = findRegFor(lhs, FpRegs);
-    Register rb = findRegFor(rhs, FpRegs);
 
     // do the comparison and get results loaded in ARM status register
     FMSTAT();

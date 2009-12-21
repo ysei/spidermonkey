@@ -52,6 +52,7 @@ CPPSRCS = \
   testXDR.cpp \
   testIntString.cpp \
   testSameValue.cpp \
+  testDebugger.cpp \
   testDefineGetterSetterNonEnumerable.cpp \
   $(NULL)
 
