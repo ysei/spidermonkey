@@ -19,7 +19,7 @@
  * Portions created by the Initial Developer are Copyright (C) 2008
  * the Initial Developer. All Rights Reserved.
  *
- * Contributor(s): Norris Boyd
+ * Contributor(s): Andreas Gal
  *
  * Alternatively, the contents of this file may be used under the terms of
  * either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -35,11 +35,10 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-var gTestfile = 'regress-478047.js';
+var gTestfile = 'regress-532491.js';
 //-----------------------------------------------------------------------------
-var BUGNUMBER = 478047;
-var summary = 'Assign to property with getter but no setter should throw ' +
-  'TypeError';
+var BUGNUMBER = 466128;
+var summary = 'Assertion failure: staticLevel == script->staticLevel, at ../jsobj.cpp';
 var actual = '';
 var expect = '';
 
@@ -54,32 +53,17 @@ function test()
   printBugNumber(BUGNUMBER);
   printStatus (summary);
 
-  expect = 'TypeError: setting a property that has only a getter';
-  try
-  { 
-    var o = { get p() { return "a"; } };
-    o.p = "b";
+  jit(false);
+  function f(foo) {
+    if (a % 2 == 1) {
+      try {
+        eval(foo);
+      } catch(e) {}
+    }
   }
-  catch(ex)
-  {
-    actual = ex + '';
-  }
-  reportCompare(expect, actual, summary);
-
-
-  actual = '';
-  try
-  {
-    o = { get p() { return "a"; } };
-    T = (function () {});
-    T.prototype = o;
-    y = new T();
-    y.p = "b";
-  }
-  catch(ex)
-  {
-    actual = ex + '';
-  }
+  a = 1;
+  f("eval(\"x\")");
+  f("x");
 
   reportCompare(expect, actual, summary);
 

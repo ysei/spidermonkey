@@ -1,5 +1,7 @@
-/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
-/* ***** BEGIN LICENSE BLOCK *****
+/* -*- Mode: C; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
+ * vim: set ts=8 sw=4 et tw=99:
+ *
+ * ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
  * The contents of this file are subject to the Mozilla Public License Version
@@ -12,18 +14,19 @@
  * for the specific language governing rights and limitations under the
  * License.
  *
- * The Original Code is JavaScript Engine testing utilities.
+ * The Original Code is Mozilla Communicator client code, released
+ * March 31, 1998.
  *
  * The Initial Developer of the Original Code is
- * Mozilla Foundation.
- * Portions created by the Initial Developer are Copyright (C) 2007
+ * Netscape Communications Corporation.
+ * Portions created by the Initial Developer are Copyright (C) 1998
  * the Initial Developer. All Rights Reserved.
  *
  * Contributor(s):
  *
  * Alternatively, the contents of this file may be used under the terms of
- * either the GNU General Public License Version 2 or later (the "GPL"), or
- * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * either of the GNU General Public License Version 2 or later (the "GPL"),
+ * or the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
  * in which case the provisions of the GPL or the LGPL are applicable instead
  * of those above. If you wish to allow use of your version of this file only
  * under the terms of either the GPL or the LGPL, and not to allow others to
@@ -35,38 +38,22 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-var gTestfile = 'regress-414098.js';
-//-----------------------------------------------------------------------------
-var BUGNUMBER = 414098;
-var summary = 'Getter behavior on arrays';
-var actual = '';
-var expect = '';
+#ifndef jsobjinlines_h___
+#define jsobjinlines_h___
 
-var a=[1,2,3];
-var foo = 44;
-a.__defineGetter__(1, function() { return foo + 10; });
-actual = String(a);
-reportCompare("1,54,3", actual, "getter 1");
+#include "jsobj.h"
+#include "jsscope.h"
 
-actual = String(a.reverse());
-reportCompare("3,54,1", actual, "reverse");
+inline void
+JSObject::initSharingEmptyScope(JSClass *clasp, JSObject *proto, JSObject *parent,
+                                jsval privateSlotValue)
+{
+    init(clasp, proto, parent, privateSlotValue);
 
-var s = "";
-a.forEach(function(e) { s += e + "|"; });
-actual = s;
-reportCompare("3|54|1|", actual, "forEach");
+    JSEmptyScope *emptyScope = OBJ_SCOPE(proto)->emptyScope;
+    JS_ASSERT(emptyScope->clasp == clasp);
+    emptyScope->hold();
+    map = emptyScope;
+}
 
-actual = a.join(' - ');
-reportCompare("3 - 54 - 1", actual, "join");
-
-actual = String(a.sort());
-reportCompare("1,54,54", actual, "sort");
-
-a[2]=3;
-reportCompare(actual, "1,54,54", "setter");
-
-actual = a.pop();
-reportCompare(actual, 3, "pop");
-
-actual = a.pop();
-reportCompare(actual, 54, "pop 2");
+#endif /* jsobjinlines_h___ */

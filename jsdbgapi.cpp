@@ -1200,7 +1200,7 @@ JS_GetFrameThis(JSContext *cx, JSStackFrame *fp)
         afp = NULL;
     }
 
-    if (!fp->thisp && fp->argv)
+    if (fp->argv)
         fp->thisp = js_ComputeThis(cx, JS_TRUE, fp->argv);
 
     if (afp) {

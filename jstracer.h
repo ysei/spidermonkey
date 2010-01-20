@@ -50,6 +50,7 @@
 #include "jsinterp.h"
 #include "jslock.h"
 #include "jsnum.h"
+#include "jsvector.h"
 
 #if defined(DEBUG) && !defined(JS_JIT_SPEW)
 #define JS_JIT_SPEW
@@ -735,6 +736,7 @@ class TraceRecorder {
     uint32                  outerArgc; /* outer trace deepest frame argc */
     bool                    loop;
     nanojit::LIns*          loopLabel;
+    js::Vector<JSTraceType, 256> tempTypeMap;
 
     nanojit::LIns* insImmVal(jsval val);
     nanojit::LIns* insImmObj(JSObject* obj);
@@ -1074,6 +1076,7 @@ public:
 
     friend class ImportBoxedStackSlotVisitor;
     friend class ImportUnboxedStackSlotVisitor;
+    friend class ImportUnboxedFrameSlotVisitor;
     friend class ImportGlobalSlotVisitor;
     friend class AdjustCallerGlobalTypesVisitor;
     friend class AdjustCallerStackTypesVisitor;
@@ -1137,7 +1140,7 @@ extern bool
 js_OverfullJITCache(JSTraceMonitor* tm);
 
 extern void
-js_ResetJIT(JSContext* cx);
+js_FlushJITCache(JSContext* cx);
 
 extern void
 js_PurgeJITOracle();
