@@ -72,9 +72,10 @@ typedef enum JSVersion {
     JSVERSION_1_6     = 160,
     JSVERSION_1_7     = 170,
     JSVERSION_1_8     = 180,
+    JSVERSION_ECMA_5  = 185,
     JSVERSION_DEFAULT = 0,
     JSVERSION_UNKNOWN = -1,
-    JSVERSION_LATEST  = JSVERSION_1_8
+    JSVERSION_LATEST  = JSVERSION_ECMA_5
 } JSVersion;
 
 #define JSVERSION_IS_ECMA(version) \
@@ -153,6 +154,7 @@ typedef struct JSExceptionState  JSExceptionState;
 typedef struct JSLocaleCallbacks JSLocaleCallbacks;
 typedef struct JSSecurityCallbacks JSSecurityCallbacks;
 typedef struct JSONParser        JSONParser;
+typedef struct JSCompartment     JSCompartment;
 
 /* JSClass (and JSObjectOps where appropriate) function pointer typedefs. */
 
@@ -258,6 +260,12 @@ typedef JSBool
  */
 typedef JSBool
 (* JSConvertOp)(JSContext *cx, JSObject *obj, JSType type, jsval *vp);
+
+/*
+ * Delegate typeof to an object so it can cloak a primitive or another object.
+ */
+typedef JSType
+(* JSTypeOfOp)(JSContext *cx, JSObject *obj);
 
 /*
  * Finalize obj, which the garbage collector has determined to be unreachable
@@ -374,7 +382,7 @@ extern JSMarkOp js_WrongTypeForClassTracer;
 #endif
 
 /*
- * Tracer callback, called for each traceable thing directly refrenced by a
+ * Tracer callback, called for each traceable thing directly referenced by a
  * particular object or runtime structure. It is the callback responsibility
  * to ensure the traversal of the full object graph via calling eventually
  * JS_TraceChildren on the passed thing. In this case the callback must be
@@ -576,6 +584,13 @@ typedef JSBool
  */
 typedef JSPrincipals *
 (* JSObjectPrincipalsFinder)(JSContext *cx, JSObject *obj);
+
+/*
+ * Used to check if a CSP instance wants to disable eval() and friends.
+ * See js_CheckCSPPermitsJSAction() in jsobj.
+ */
+typedef JSBool
+(* JSCSPEvalChecker)(JSContext *cx);
 
 JS_END_EXTERN_C
 

@@ -46,16 +46,10 @@ include $(DEPTH)/config/autoconf.mk
 MODULE		= xpcshell
 PROGRAM		= xpcshell$(BIN_SUFFIX)
 
-REQUIRES	= xpconnect \
-		  xpcom \
-		  js \
-		  caps \
-		  xulapp \
-		  $(NULL)
 
 CPPSRCS		= xpcshell.cpp
 
-ifneq (,$(filter mac cocoa,$(MOZ_WIDGET_TOOLKIT)))
+ifeq (cocoa,$(MOZ_WIDGET_TOOLKIT))
 CMMSRCS += xpcshellMacUtils.mm
 endif
 

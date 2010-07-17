@@ -257,17 +257,41 @@ protected:
 class xpc_qsDOMString : public xpc_qsBasicString<nsAString, nsDependentString>
 {
 public:
-    xpc_qsDOMString(JSContext *cx, jsval *pval);
+    /* Enum that defines how JS |null| and |undefined| should be treated.  See
+     * the WebIDL specification.  eStringify means convert to the string "null"
+     * or "undefined" respectively, via the standard JS ToString() operation;
+     * eEmpty means convert to the string ""; eNull means convert to an empty
+     * string with the void bit set.
+     *
+     * Per webidl the default behavior of an unannotated interface is
+     * eStringify, but our de-facto behavior has been eNull for |null| and
+     * eStringify for |undefined|, so leaving it that way for now.  If we ever
+     * get to a point where we go through and annotate our interfaces as
+     * needed, we can change that.
+     */
+    enum StringificationBehavior {
+        eStringify,
+        eEmpty,
+        eNull,
+        eDefaultNullBehavior = eNull,
+        eDefaultUndefinedBehavior = eStringify
+    };
+
+    xpc_qsDOMString(JSContext *cx, jsval v, jsval *pval,
+                    StringificationBehavior nullBehavior,
+                    StringificationBehavior undefinedBehavior);
 };
 
 /**
  * The same as xpc_qsDOMString, but with slightly different conversion behavior,
  * corresponding to the [astring] magic XPIDL annotation rather than [domstring].
  */
-class xpc_qsAString : public xpc_qsBasicString<nsAString, nsDependentString>
+class xpc_qsAString : public xpc_qsDOMString
 {
 public:
-    xpc_qsAString(JSContext *cx, jsval *pval);
+    xpc_qsAString(JSContext *cx, jsval v, jsval *pval)
+        : xpc_qsDOMString(cx, v, pval, eNull, eNull)
+    {}
 };
 
 /**
@@ -277,7 +301,7 @@ public:
 class xpc_qsACString : public xpc_qsBasicString<nsACString, nsCString>
 {
 public:
-    xpc_qsACString(JSContext *cx, jsval *pval);
+    xpc_qsACString(JSContext *cx, jsval v, jsval *pval);
 };
 
 struct xpc_qsSelfRef
@@ -297,7 +321,7 @@ struct xpc_qsArgValArray
         memset(array, 0, N * sizeof(jsval));
     }
 
-    JSAutoTempValueRooter tvr;
+    js::AutoArrayRooter tvr;
     jsval array[N];
 };
 
@@ -314,25 +338,34 @@ struct xpc_qsArgValArray
  *     null or undefined. Unicode data is garbled as with JS_GetStringBytes.
  */
 JSBool
-xpc_qsJsvalToCharStr(JSContext *cx, jsval *pval, char **pstr);
+xpc_qsJsvalToCharStr(JSContext *cx, jsval v, jsval *pval, char **pstr);
 
 JSBool
-xpc_qsJsvalToWcharStr(JSContext *cx, jsval *pval, PRUnichar **pstr);
+xpc_qsJsvalToWcharStr(JSContext *cx, jsval v, jsval *pval, PRUnichar **pstr);
 
 
 /** Convert an nsAString to jsval, returning JS_TRUE on success. */
 JSBool
 xpc_qsStringToJsval(JSContext *cx, const nsAString &str, jsval *rval);
 
-JSBool
-xpc_qsUnwrapThisImpl(JSContext *cx,
-                     JSObject *obj,
-                     JSObject *callee,
-                     const nsIID &iid,
-                     void **ppThis,
-                     nsISupports **ppThisRef,
-                     jsval *vp,
-                     XPCLazyCallContext *lccx);
+nsresult
+getWrapper(JSContext *cx,
+           JSObject *obj,
+           JSObject *callee,
+           XPCWrappedNative **wrapper,
+           JSObject **cur,
+           XPCWrappedNativeTearOff **tearoff);
+
+nsresult
+castNative(JSContext *cx,
+           XPCWrappedNative *wrapper,
+           JSObject *cur,
+           XPCWrappedNativeTearOff *tearoff,
+           const nsIID &iid,
+           void **ppThis,
+           nsISupports **ppThisRef,
+           jsval *vp,
+           XPCLazyCallContext *lccx);
 
 /**
  * Search @a obj and its prototype chain for an XPCOM object that implements
@@ -360,14 +393,85 @@ xpc_qsUnwrapThis(JSContext *cx,
                  jsval *pThisVal,
                  XPCLazyCallContext *lccx)
 {
-    return xpc_qsUnwrapThisImpl(cx,
-                                obj,
-                                callee,
-                                NS_GET_TEMPLATE_IID(T),
-                                reinterpret_cast<void **>(ppThis),
-                                pThisRef,
-                                pThisVal,
-                                lccx);
+    XPCWrappedNative *wrapper;
+    XPCWrappedNativeTearOff *tearoff;
+    nsresult rv = getWrapper(cx, obj, callee, &wrapper, &obj, &tearoff);
+    if(NS_SUCCEEDED(rv))
+        rv = castNative(cx, wrapper, obj, tearoff, NS_GET_TEMPLATE_IID(T),
+                        reinterpret_cast<void **>(ppThis), pThisRef, pThisVal,
+                        lccx);
+
+    return NS_SUCCEEDED(rv) || xpc_qsThrow(cx, rv);
+}
+
+inline nsISupports*
+castNativeFromWrapper(JSContext *cx,
+                      JSObject *obj,
+                      JSObject *callee,
+                      PRUint32 interfaceBit,
+                      nsISupports **pRef,
+                      jsval *pVal,
+                      XPCLazyCallContext *lccx,
+                      nsresult *rv NS_OUTPARAM)
+{
+    XPCWrappedNative *wrapper;
+    XPCWrappedNativeTearOff *tearoff;
+    JSObject *cur;
+
+    if(!callee && IS_WRAPPER_CLASS(obj->getClass()))
+    {
+        cur = obj;
+        wrapper = IS_WN_WRAPPER_OBJECT(cur) ?
+                  (XPCWrappedNative*)xpc_GetJSPrivate(obj) :
+                  nsnull;
+        tearoff = nsnull;
+    }
+    else
+    {
+        *rv = getWrapper(cx, obj, callee, &wrapper, &cur, &tearoff);
+        if (NS_FAILED(*rv))
+            return nsnull;
+    }
+
+    nsISupports *native;
+    if(wrapper)
+    {
+        native = wrapper->GetIdentityObject();
+        cur = wrapper->GetFlatJSObject();
+    }
+    else
+    {
+        native = cur ?
+                 static_cast<nsISupports*>(xpc_GetJSPrivate(cur)) :
+                 nsnull;
+    }
+
+    *rv = NS_ERROR_XPC_BAD_CONVERT_JS;
+
+    if(!native)
+        return nsnull;
+
+    NS_ASSERTION(IS_WRAPPER_CLASS(cur->getClass()), "Not a wrapper?");
+
+    XPCNativeScriptableSharedJSClass *clasp =
+      (XPCNativeScriptableSharedJSClass*)cur->getClass();
+    if(!(clasp->interfacesBitmap & (1 << interfaceBit)))
+        return nsnull;
+
+    *pRef = nsnull;
+    *pVal = OBJECT_TO_JSVAL(cur);
+
+    if(lccx)
+    {
+        if(wrapper)
+            lccx->SetWrapper(wrapper, tearoff);
+        else
+            lccx->SetWrapper(cur);
+    }
+
+    *rv = NS_OK;
+
+    return native;
 }
 
 JSBool
@@ -395,6 +499,9 @@ xpc_qsUnwrapThisFromCcx(XPCCallContext &ccx,
                                        pThisVal);
 }
 
+JSObject*
+xpc_qsUnwrapObj(jsval v, nsISupports **ppArgRef, nsresult *rv);
+
 nsresult
 xpc_qsUnwrapArgImpl(JSContext *cx, jsval v, const nsIID &iid, void **ppArg,
                     nsISupports **ppArgRef, jsval *vp);
@@ -407,6 +514,21 @@ xpc_qsUnwrapArg(JSContext *cx, jsval v, T **ppArg, nsISupports **ppArgRef,
 {
     return xpc_qsUnwrapArgImpl(cx, v, NS_GET_TEMPLATE_IID(T),
                                reinterpret_cast<void **>(ppArg), ppArgRef, vp);
+}
+
+inline nsISupports*
+castNativeArgFromWrapper(JSContext *cx,
+                         jsval v,
+                         PRUint32 bit,
+                         nsISupports **pArgRef,
+                         jsval *vp,
+                         nsresult *rv NS_OUTPARAM)
+{
+    JSObject *src = xpc_qsUnwrapObj(v, pArgRef, rv);
+    if(!src)
+        return nsnull;
+
+    return castNativeFromWrapper(cx, src, nsnull, bit, pArgRef, vp, nsnull, rv);
 }
 
 inline nsWrapperCache*
@@ -438,6 +560,12 @@ xpc_qsVariantToJsval(XPCLazyCallContext &ccx,
                      nsIVariant *p,
                      jsval *rval);
 
+inline nsISupports*
+ToSupports(nsISupports *p)
+{
+    return p;
+}
+
 #ifdef DEBUG
 void
 xpc_qsAssertContextOK(JSContext *cx);
@@ -446,6 +574,18 @@ inline PRBool
 xpc_qsSameResult(nsISupports *result1, nsISupports *result2)
 {
     return SameCOMIdentity(result1, result2);
+}
+
+inline PRBool
+xpc_qsSameResult(const nsString &result1, const nsString &result2)
+{
+    return result1.Equals(result2);
+}
+
+inline PRBool
+xpc_qsSameResult(PRInt32 result1, PRInt32 result2)
+{
+    return result1 == result2;
 }
 
 #define XPC_QS_ASSERT_CONTEXT_OK(cx) xpc_qsAssertContextOK(cx)

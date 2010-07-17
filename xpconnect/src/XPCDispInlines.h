@@ -109,7 +109,7 @@ VARTYPE XPCDispInterface::Member::ParamInfo::GetType() const
 inline
 XPCDispInterface::Member::Member() : 
     mType(UNINITIALIZED), mFuncDesc(nsnull), mGetterFuncDesc(nsnull),
-    mTypeInfo(nsnull)
+    mTypeInfo(reinterpret_cast<ITypeInfo *>(nsnull))
 {
 }
 
@@ -607,17 +607,6 @@ void * XPCDispParams::GetOutputBuffer(PRUint32 index)
 {
     NS_ASSERTION(index < mDispParams.cArgs, "XPCDispParams::GetParam bounds error");
     return mRefBuffer + sizeof(VARIANT) * index;
-}
-
-//=============================================================================
-// XPCDispParamPropJSClass inlines
-inline
-JSBool XPCDispParamPropJSClass::Invoke(XPCCallContext& ccx, 
-                                       XPCDispObject::CallMode mode,
-                                       jsval* retval)
-{
-    return XPCDispObject::Dispatch(ccx, mDispObj, mDispID, mode, mDispParams,
-                                   retval);
 }
 
 //=============================================================================

@@ -89,7 +89,7 @@ endif
 endif
 
 ifeq (,$(filter-out WINNT WINCE,$(OS_ARCH)))
-_VPATH_SRCS = $(if $(filter /%,$<),$<,$(CURDIR)/$<)
+_VPATH_SRCS = $(abspath $<)
 else
 _VPATH_SRCS = $<
 endif
@@ -155,7 +155,7 @@ SOLO_FILE ?= $(error Specify a test filename in SOLO_FILE when using check-inter
 
 libs::
 	$(foreach dir,$(XPCSHELL_TESTS),$(_INSTALL_TESTS))
-	$(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/build-list.pl \
+	$(PYTHON) $(MOZILLA_DIR)/config/buildlist.py \
           $(testxpcobjdir)/all-test-dirs.list \
           $(addprefix $(MODULE)/,$(XPCSHELL_TESTS))
 
@@ -180,6 +180,7 @@ check-interactive:
           $(testxpcsrcdir)/runxpcshelltests.py \
           --symbols-path=$(DIST)/crashreporter-symbols \
           --test-path=$(SOLO_FILE) \
+          --profile-name=$(MOZ_APP_NAME) \
           --interactive \
           $(DIST)/bin/xpcshell \
           $(foreach dir,$(XPCSHELL_TESTS),$(testxpcobjdir)/$(MODULE)/$(dir))
@@ -191,6 +192,7 @@ check-one:
           $(testxpcsrcdir)/runxpcshelltests.py \
           --symbols-path=$(DIST)/crashreporter-symbols \
           --test-path=$(SOLO_FILE) \
+          --profile-name=$(MOZ_APP_NAME) \
           $(DIST)/bin/xpcshell \
           $(foreach dir,$(XPCSHELL_TESTS),$(testxpcobjdir)/$(MODULE)/$(dir))
 
@@ -209,7 +211,7 @@ LIBS += $(XPCOM_GLUE_LDOPTS) $(NSPR_LIBS)
 # ...and run them the usual way
 check::
 	@$(EXIT_ON_ERROR) \
-	  for f in $(subst .cpp,,$(CPP_UNIT_TESTS)); do \
+	  for f in $(subst .cpp,$(BIN_SUFFIX),$(CPP_UNIT_TESTS)); do \
 	    XPCOM_DEBUG_BREAK=stack-and-abort $(RUN_TEST_PROGRAM) $(DIST)/bin/$$f; \
 	  done
 
@@ -229,12 +231,6 @@ endif # ENABLE_TESTS
 
 ifndef LIBRARY
 ifdef STATIC_LIBRARY_NAME
-ifneq (,$(filter OS2 WINNT WINCE,$(OS_ARCH)))
-ifdef SHORT_LIBNAME
-STATIC_LIBRARY_NAME	:= $(SHORT_LIBNAME)
-SHARED_LIBRARY_NAME	:= $(SHORT_LIBNAME)
-endif
-endif
 LIBRARY			:= $(LIB_PREFIX)$(STATIC_LIBRARY_NAME).$(LIB_SUFFIX)
 endif # STATIC_LIBRARY_NAME
 endif # LIBRARY
@@ -253,6 +249,16 @@ ifdef LIB_IS_C_ONLY
 MKSHLIB			= $(MKCSHLIB)
 endif
 
+ifneq (,$(filter OS2 WINNT WINCE,$(OS_ARCH)))
+IMPORT_LIBRARY		:= $(LIB_PREFIX)$(SHARED_LIBRARY_NAME).$(IMPORT_LIB_SUFFIX)
+endif
+
+ifeq (OS2,$(OS_ARCH))
+ifdef SHORT_LIBNAME
+SHARED_LIBRARY_NAME	:= $(SHORT_LIBNAME)
+endif
+endif
+
 ifdef MAKE_FRAMEWORK
 SHARED_LIBRARY		:= $(SHARED_LIBRARY_NAME)
 else
@@ -261,10 +267,6 @@ endif
 
 ifeq ($(OS_ARCH),OS2)
 DEF_FILE		:= $(SHARED_LIBRARY:.dll=.def)
-endif
-
-ifneq (,$(filter OS2 WINNT WINCE,$(OS_ARCH)))
-IMPORT_LIBRARY		:= $(LIB_PREFIX)$(SHARED_LIBRARY_NAME).$(IMPORT_LIB_SUFFIX)
 endif
 
 ifdef MOZ_ENABLE_LIBXUL
@@ -348,17 +350,15 @@ endif
 endif # !GNU_CC
 
 ifdef ENABLE_CXX_EXCEPTIONS
-ifdef GNU_CC
-CXXFLAGS		+= -fexceptions
-else
-ifeq (,$(filter-out 1200 1300 1310,$(_MSC_VER)))
-CXXFLAGS		+= -GX
-else
-CXXFLAGS		+= -EHsc
-endif # _MSC_VER
-endif # GNU_CC
+CXXFLAGS += $(MOZ_EXCEPTIONS_FLAGS_ON) -DMOZ_CPP_EXCEPTIONS=1
 endif # ENABLE_CXX_EXCEPTIONS
 endif # WINNT
+
+ifeq ($(SOLARIS_SUNPRO_CXX),1)
+ifeq (86,$(findstring 86,$(OS_TEST)))
+OS_LDFLAGS += -M $(topsrcdir)/config/solaris_ia32.map
+endif # x86
+endif # Solaris Sun Studio C++
 
 ifeq (,$(filter-out WINNT WINCE,$(HOST_OS_ARCH)))
 HOST_PDBFILE=$(basename $(@F)).pdb
@@ -373,6 +373,7 @@ _OBJS			= \
 	$(JRI_STUB_CFILES) \
 	$(addsuffix .$(OBJ_SUFFIX), $(JMC_GEN)) \
 	$(CSRCS:.c=.$(OBJ_SUFFIX)) \
+	$(SSRCS:.S=.$(OBJ_SUFFIX)) \
 	$(patsubst %.cc,%.$(OBJ_SUFFIX),$(CPPSRCS:.cpp=.$(OBJ_SUFFIX))) \
 	$(CMSRCS:.m=.$(OBJ_SUFFIX)) \
 	$(CMMSRCS:.mm=.$(OBJ_SUFFIX)) \
@@ -606,15 +607,6 @@ endif
 endif
 endif
 
-ifeq ($(OS_ARCH),Linux)
-ifneq (,$(filter mips mipsel,$(OS_TEST)))
-ifeq ($(MODULE),layout)
-OS_CFLAGS += -Wa,-xgot
-OS_CXXFLAGS += -Wa,-xgot
-endif
-endif
-endif
-
 #
 # HP-UXBeOS specific section: for COMPONENTS only, add -Bsymbolic flag
 # which uses internal symbols first
@@ -665,6 +657,14 @@ endif
 endif 
 
 #
+# GNU doesn't have path length limitation
+#
+
+ifeq ($(OS_ARCH),GNU)
+OS_CPPFLAGS += -DPATH_MAX=1024 -DMAXPATHLEN=1024
+endif
+
+#
 # MINGW32
 #
 ifeq ($(OS_ARCH),WINNT)
@@ -692,7 +692,7 @@ ifneq (,$(filter WINCE,$(OS_ARCH)))
 OUTOPTION = -Fo# eol
 endif
 
-ifeq ($(OS_TARGET), WINCE)
+ifeq ($(OS_ARCH), WINCE)
 OUTOPTION = -Fo# eol
 HOST_OUTOPTION = -Fo# eol
 else
@@ -768,6 +768,7 @@ $(foreach tier,$(TIERS),tier_$(tier))::
 	$(foreach dir,$($@_staticdirs),$(call SUBMAKE,,$(dir)))
 	$(MAKE) export_$@
 	$(MAKE) libs_$@
+	$(MAKE) tools_$@
 
 # Do everything from scratch
 everything::
@@ -817,13 +818,13 @@ ifdef LIBRARY_NAME
 ifdef EXPORT_LIBRARY
 ifdef IS_COMPONENT
 ifdef BUILD_STATIC_LIBS
-	@$(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/build-list.pl $(FINAL_LINK_COMPS) $(STATIC_LIBRARY_NAME)
+	@$(PYTHON) $(MOZILLA_DIR)/config/buildlist.py $(FINAL_LINK_COMPS) $(STATIC_LIBRARY_NAME)
 ifdef MODULE_NAME
-	@$(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/build-list.pl $(FINAL_LINK_COMP_NAMES) $(MODULE_NAME)
+	@$(PYTHON) $(MOZILLA_DIR)/config/buildlist.py $(FINAL_LINK_COMP_NAMES) $(MODULE_NAME)
 endif
 endif # BUILD_STATIC_LIBS
 else  # !IS_COMPONENT
-	$(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/build-list.pl $(FINAL_LINK_LIBS) $(STATIC_LIBRARY_NAME)
+	$(PYTHON) $(MOZILLA_DIR)/config/buildlist.py $(FINAL_LINK_LIBS) $(STATIC_LIBRARY_NAME)
 endif # IS_COMPONENT
 endif # EXPORT_LIBRARY
 endif # LIBRARY_NAME
@@ -832,6 +833,23 @@ endif # LIBRARY_NAME
 LIBS_DEPS = $(filter %.$(LIB_SUFFIX), $(LIBS))
 HOST_LIBS_DEPS = $(filter %.$(LIB_SUFFIX), $(HOST_LIBS))
 DSO_LDOPTS_DEPS = $(EXTRA_DSO_LIBS) $(filter %.$(LIB_SUFFIX), $(EXTRA_DSO_LDOPTS))
+
+ifndef _LIBNAME_RELATIVE_PATHS
+
+LIBS_DEPS += $(filter -l%, $(LIBS))
+HOST_LIBS_DEPS += $(filter -l%, $(HOST_LIBS))
+DSO_LDOPTS_DEPS += $(filter -l%, $(EXTRA_DSO_LDOPTS))
+
+_LIBDIRS = $(patsubst -L%,%,$(filter -L%, $(LIBS) $(HOST_LIBS) $(EXTRA_DSO_LDOPTS)))
+ifneq (,$(_LIBDIRS))
+vpath $(LIB_PREFIX)%.$(LIB_SUFFIX) $(_LIBDIRS)
+ifdef IMPORT_LIB_SUFFIX
+vpath $(LIB_PREFIX)%.$(IMPORT_LIB_SUFFIX) $(_LIBDIRS)
+endif # IMPORT_LIB_SUFFIX
+vpath $(DLL_PREFIX)%$(DLL_SUFFIX) $(_LIBDIRS)
+endif # _LIBDIRS
+
+endif # _LIBNAME_RELATIVE_PATHS
 
 # Dependancies which, if modified, should cause everything to rebuild
 GLOBAL_DEPS += Makefile Makefile.in $(DEPTH)/config/autoconf.mk $(topsrcdir)/config/config.mk
@@ -866,7 +884,7 @@ ifdef SHARED_LIBRARY
 ifdef IS_COMPONENT
 	$(INSTALL) $(IFLAGS2) $(SHARED_LIBRARY) $(FINAL_TARGET)/components
 	$(ELF_DYNSTR_GC) $(FINAL_TARGET)/components/$(SHARED_LIBRARY)
-	@$(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/build-list.pl $(FINAL_TARGET)/components/components.list $(SHARED_LIBRARY)
+	@$(PYTHON) $(MOZILLA_DIR)/config/buildlist.py $(FINAL_TARGET)/components/components.list $(SHARED_LIBRARY)
 ifdef BEOS_ADDON_WORKAROUND
 	( cd $(FINAL_TARGET)/components && $(CC) -nostart -o $(SHARED_LIBRARY).stub $(SHARED_LIBRARY) )
 endif
@@ -910,19 +928,20 @@ endif # !NO_DIST_INSTALL
 ##############################################
 
 ifndef NO_PROFILE_GUIDED_OPTIMIZE
-ifneq (,$(MOZ_PROFILE_GENERATE)$(MOZ_PROFILE_USE))
+ifdef MOZ_PROFILE_USE
 ifeq ($(OS_ARCH)_$(GNU_CC)$(INTERNAL_TOOLS), WINNT_)
-# Force re-linking when building with PGO, since
-# the MSVC linker does all the work.  We force re-link
-# in both stages so you can do depend builds with PGO.
+# When building with PGO, we have to make sure to re-link
+# in the MOZ_PROFILE_USE phase if we linked in the
+# MOZ_PROFILE_GENERATE phase. We'll touch this pgo.relink
+# file in the link rule in the GENERATE phase to indicate
+# that we need a relink.
 ifdef SHARED_LIBRARY
-$(SHARED_LIBRARY): FORCE
+$(SHARED_LIBRARY): pgo.relink
 endif
 ifdef PROGRAM
-$(PROGRAM): FORCE
+$(PROGRAM): pgo.relink
 endif
 
-ifdef MOZ_PROFILE_USE
 # In the second pass, we need to merge the pgc files into the pgd file.
 # The compiler would do this for us automatically if they were in the right
 # place, but they're in dist/bin.
@@ -936,8 +955,7 @@ ifdef SHARED_LIBRARY
 	$(PYTHON) $(topsrcdir)/build/win32/pgomerge.py \
 	  $(SHARED_LIBRARY_NAME) $(DIST)/bin
 endif
-endif
-endif # MOZ_PROFILE_USE
+endif # SHARED_LIBRARY || PROGRAM
 endif # WINNT_
 endif # MOZ_PROFILE_GENERATE || MOZ_PROFILE_USE
 endif # NO_PROFILE_GUIDED_OPTIMIZE
@@ -993,11 +1011,16 @@ ifdef MSMANIFEST_TOOL
 		mt.exe -NOLOGO -MANIFEST "$(win_srcdir)/$@.manifest" -OUTPUTRESOURCE:$@\;1; \
 	fi
 endif	# MSVC with manifest tool
-else
+ifdef MOZ_PROFILE_GENERATE
+# touch it a few seconds into the future to work around FAT's
+# 2-second granularity
+	touch -t `date +%Y%m%d%H%M.%S -d "now+5seconds"` pgo.relink
+endif
+else # !WINNT || GNU_CC
 ifeq ($(CPP_PROG_LINK),1)
-	$(CCC) -o $@ $(CXXFLAGS) $(WRAP_MALLOC_CFLAGS) $(PROGOBJS) $(RESFILE) $(WIN32_EXE_LDFLAGS) $(SOLARIS_JEMALLOC_LDFLAGS) $(LDFLAGS) $(LIBS_DIR) $(LIBS) $(OS_LIBS) $(EXTRA_LIBS) $(BIN_FLAGS) $(WRAP_MALLOC_LIB) $(PROFILER_LIBS) $(EXE_DEF_FILE)
+	$(CCC) -o $@ $(CXXFLAGS) $(WRAP_MALLOC_CFLAGS) $(PROGOBJS) $(RESFILE) $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(LIBS_DIR) $(LIBS) $(OS_LIBS) $(EXTRA_LIBS) $(BIN_FLAGS) $(WRAP_MALLOC_LIB) $(EXE_DEF_FILE)
 else # ! CPP_PROG_LINK
-	$(CC) -o $@ $(CFLAGS) $(PROGOBJS) $(RESFILE) $(WIN32_EXE_LDFLAGS) $(SOLARIS_JEMALLOC_LDFLAGS) $(LDFLAGS) $(LIBS_DIR) $(LIBS) $(OS_LIBS) $(EXTRA_LIBS) $(BIN_FLAGS) $(EXE_DEF_FILE)
+	$(CC) -o $@ $(CFLAGS) $(PROGOBJS) $(RESFILE) $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(LIBS_DIR) $(LIBS) $(OS_LIBS) $(EXTRA_LIBS) $(BIN_FLAGS) $(EXE_DEF_FILE)
 endif # CPP_PROG_LINK
 endif # WINNT && !GNU_CC
 endif # WINCE
@@ -1024,11 +1047,15 @@ ifeq (_WINNT,$(GNU_CC)_$(HOST_OS_ARCH))
 ifdef MSMANIFEST_TOOL
 	@if test -f $@.manifest; then \
 		if test -f "$(srcdir)/$@.manifest"; then \
+			echo "Embedding manifest from $(srcdir)/$@.manifest and $@.manifest"; \
 			mt.exe -NOLOGO -MANIFEST "$(win_srcdir)/$@.manifest" $@.manifest -OUTPUTRESOURCE:$@\;1; \
 		else \
+			echo "Embedding manifest from $@.manifest"; \
 			mt.exe -NOLOGO -MANIFEST $@.manifest -OUTPUTRESOURCE:$@\;1; \
 		fi; \
-		rm -f $@.manifest; \
+	elif test -f "$(srcdir)/$@.manifest"; then \
+		echo "Embedding manifest from $(srcdir)/$@.manifest"; \
+		mt.exe -NOLOGO -MANIFEST "$(win_srcdir)/$@.manifest" -OUTPUTRESOURCE:$@\;1; \
 	fi
 endif	# MSVC with manifest tool
 else
@@ -1050,7 +1077,7 @@ endif
 #
 $(SIMPLE_PROGRAMS): %$(BIN_SUFFIX): %.$(OBJ_SUFFIX) $(LIBS_DEPS) $(EXTRA_DEPS) $(GLOBAL_DEPS)
 ifeq (WINCE,$(OS_ARCH))
-	$(LD) -nologo  -entry:main -out:$@ $< $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(LIBS) $(EXTRA_LIBS) $(OS_LIBS)
+	$(LD) -nologo  -entry:mainACRTStartup -out:$@ $< $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(LIBS) $(EXTRA_LIBS) $(OS_LIBS)
 else
 ifeq (_WINNT,$(GNU_CC)_$(OS_ARCH))
 	$(LD) -nologo -out:$@ -pdb:$(LINK_PDBFILE) $< $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(LIBS) $(EXTRA_LIBS) $(OS_LIBS)
@@ -1062,9 +1089,9 @@ ifdef MSMANIFEST_TOOL
 endif	# MSVC with manifest tool
 else
 ifeq ($(CPP_PROG_LINK),1)
-	$(CCC) $(WRAP_MALLOC_CFLAGS) $(CXXFLAGS) -o $@ $< $(WIN32_EXE_LDFLAGS) $(SOLARIS_JEMALLOC_LDFLAGS) $(LDFLAGS) $(LIBS_DIR) $(LIBS) $(OS_LIBS) $(EXTRA_LIBS) $(WRAP_MALLOC_LIB) $(PROFILER_LIBS) $(BIN_FLAGS)
+	$(CCC) $(WRAP_MALLOC_CFLAGS) $(CXXFLAGS) -o $@ $< $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(LIBS_DIR) $(LIBS) $(OS_LIBS) $(EXTRA_LIBS) $(WRAP_MALLOC_LIB) $(BIN_FLAGS)
 else
-	$(CC) $(WRAP_MALLOC_CFLAGS) $(CFLAGS) $(OUTOPTION)$@ $< $(WIN32_EXE_LDFLAGS) $(SOLARIS_JEMALLOC_LDFLAGS) $(LDFLAGS) $(LIBS_DIR) $(LIBS) $(OS_LIBS) $(EXTRA_LIBS) $(WRAP_MALLOC_LIB) $(PROFILER_LIBS) $(BIN_FLAGS)
+	$(CC) $(WRAP_MALLOC_CFLAGS) $(CFLAGS) $(OUTOPTION)$@ $< $(WIN32_EXE_LDFLAGS) $(LDFLAGS) $(LIBS_DIR) $(LIBS) $(OS_LIBS) $(EXTRA_LIBS) $(WRAP_MALLOC_LIB) $(BIN_FLAGS)
 endif # CPP_PROG_LINK
 endif # WINNT && !GNU_CC
 endif # WINCE
@@ -1205,7 +1232,7 @@ ifndef XP_MACOSX
 ifdef DTRACE_PROBE_OBJ
 ifndef DTRACE_LIB_DEPENDENT
 $(DTRACE_PROBE_OBJ): $(OBJS)
-	dtrace -G -C -32 -s $(MOZILLA_DTRACE_SRC) -o $(DTRACE_PROBE_OBJ) $(OBJS)
+	dtrace -G -C -s $(MOZILLA_DTRACE_SRC) -o $(DTRACE_PROBE_OBJ) $(OBJS)
 endif
 endif
 endif
@@ -1216,7 +1243,7 @@ endif
 # symlinks back to the originals. The symlinks are a no-op for stabs debugging,
 # so no need to conditionalize on OS version or debugging format.
 
-$(SHARED_LIBRARY): $(OBJS) $(LOBJS) $(DEF_FILE) $(RESFILE) $(SHARED_LIBRARY_LIBS) $(EXTRA_DEPS) $(DSO_LDOPTS_DEPS) $(GLOBAL_DEPS)
+$(SHARED_LIBRARY): $(OBJS) $(LOBJS) $(DEF_FILE) $(RESFILE) $(SHARED_LIBRARY_LIBS) $(LIBRARY) $(EXTRA_DEPS) $(DSO_LDOPTS_DEPS) $(GLOBAL_DEPS)
 ifndef INCREMENTAL_LINKER
 	rm -f $@
 endif
@@ -1257,7 +1284,7 @@ ifdef DTRACE_LIB_DEPENDENT
 	@rm -f $(PROBE_LOBJS)
 	@for lib in $(MOZILLA_PROBE_LIBS); do $(AR_EXTRACT) $${lib}; $(CLEANUP2); done
 ifndef XP_MACOSX
-	dtrace -G -C -32 -s $(MOZILLA_DTRACE_SRC) -o  $(DTRACE_PROBE_OBJ) $(PROBE_LOBJS)
+	dtrace -G -C -s $(MOZILLA_DTRACE_SRC) -o  $(DTRACE_PROBE_OBJ) $(PROBE_LOBJS)
 endif
 	@for lib in $(MOZILLA_PROBE_LIBS); do \
 		ofiles=`$(AR_LIST) $${lib}`; \
@@ -1284,9 +1311,11 @@ ifdef EMBED_MANIFEST_AT
 	fi
 endif   # EMBED_MANIFEST_AT
 endif	# MSVC with manifest tool
+ifdef MOZ_PROFILE_GENERATE
+	touch -t `date +%Y%m%d%H%M.%S -d "now+5seconds"` pgo.relink
+endif
 endif	# WINNT && !GCC
-ifeq ($(OS_ARCH),Darwin)
-else # non-Darwin
+ifneq ($(OS_ARCH),Darwin)
 	@rm -f $(SUB_SHLOBJS)
 endif # Darwin
 	@rm -f foodummyfilefoo $(DELETE_AFTER_LINK)
@@ -1336,12 +1365,6 @@ endif # COMPILER_DEPEND
 
 endif # MOZ_AUTO_DEPS
 
-ifdef MOZ_MEMORY
-ifeq ($(OS_ARCH),SunOS)
-SOLARIS_JEMALLOC_LDFLAGS = $(call EXPAND_LIBNAME_PATH,jemalloc,$(DIST)/lib)
-endif
-endif
-
 # Rules for building native targets must come first because of the host_ prefix
 host_%.$(OBJ_SUFFIX): %.c $(GLOBAL_DEPS)
 	$(REPORT_BUILD)
@@ -1375,6 +1398,10 @@ host_%.$(OBJ_SUFFIX): %.mm $(GLOBAL_DEPS)
 
 moc_%.cpp: %.h $(GLOBAL_DEPS)
 	$(MOC) $< $(OUTOPTION)$@ 
+
+moc_%.cc: %.cc $(GLOBAL_DEPS)
+	$(REPORT_BUILD)
+	$(ELOG) $(MOC) $(_VPATH_SRCS:.cc=.h) $(OUTOPTION)$@
 
 ifdef ASFILES
 # The AS_DASH_C_FLAG is needed cause not all assemblers (Solaris) accept
@@ -1492,7 +1519,7 @@ normalizepath = $(foreach p,$(1),$(shell cygpath -m $(p)))
 else
 # assume MSYS
 #  We use 'pwd -W' to get DOS form of the path.  However, since the given path
-#  could be a file or a non-existent path, we cannot call 'pwd -W' directly
+#  could be a file or a nonexistent path, we cannot call 'pwd -W' directly
 #  on the path.  Instead, we extract the root path (i.e. "c:/"), call 'pwd -W'
 #  on it, then merge with the rest of the path.
 root-path = $(shell echo $(1) | sed -e "s|\(/[^/]*\)/\?\(.*\)|\1|")
@@ -1759,7 +1786,7 @@ $(_JAVA_GEN_DIR):
 
 $(JAVA_GEN_DIR)/.%.java.pp: %.idl $(XPIDL_COMPILE) $(_JAVA_GEN_DIR)
 	$(REPORT_BUILD)
-	$(ELOG) $(XPIDL_COMPILE) -m java -w -I$(srcdir) -I$(IDL_DIR) -o $(_JAVA_GEN_DIR)/$* $(_VPATH_SRCS)
+	$(ELOG) $(XPIDL_COMPILE) -m java -w $(XPIDL_FLAGS) -I$(srcdir) -I$(IDL_DIR) -o $(_JAVA_GEN_DIR)/$* $(_VPATH_SRCS)
 	@touch $@
 
 # "Install" generated Java interfaces.  We segregate them based on the XPI_NAME.
@@ -1785,7 +1812,7 @@ ifdef EXTRA_COMPONENTS
 libs:: $(EXTRA_COMPONENTS)
 ifndef NO_DIST_INSTALL
 	$(INSTALL) $(IFLAGS1) $^ $(FINAL_TARGET)/components
-	@$(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/build-list.pl $(FINAL_TARGET)/components/components.list $(notdir $^)
+	@$(PYTHON) $(MOZILLA_DIR)/config/buildlist.py $(FINAL_TARGET)/components/components.list $(notdir $^)
 endif
 
 endif
@@ -1800,7 +1827,7 @@ ifndef NO_DIST_INSTALL
 	  dest=$(FINAL_TARGET)/components/$${fname}; \
 	  $(RM) -f $$dest; \
 	  $(PYTHON) $(topsrcdir)/config/Preprocessor.py $(DEFINES) $(ACDEFINES) $(XULPPFLAGS) $$i > $$dest; \
-	  $(PERL) -I$(MOZILLA_DIR)/config $(MOZILLA_DIR)/config/build-list.pl $(FINAL_TARGET)/components/components.list $$fname; \
+	  $(PYTHON) $(MOZILLA_DIR)/config/buildlist.py $(FINAL_TARGET)/components/components.list $$fname; \
 	done
 endif
 
@@ -2049,21 +2076,14 @@ ifneq (,$(OBJS)$(XPIDLSRCS)$(SIMPLE_PROGRAMS))
 MDDEPEND_FILES		:= $(strip $(wildcard $(MDDEPDIR)/*.pp))
 
 ifneq (,$(MDDEPEND_FILES))
-ifdef PERL
 # The script mddepend.pl checks the dependencies and writes to stdout
 # one rule to force out-of-date objects. For example,
 #   foo.o boo.o: FORCE
 # The script has an advantage over including the *.pp files directly
 # because it handles the case when header files are removed from the build.
 # 'make' would complain that there is no way to build missing headers.
-ifeq (,$(MAKE_RESTARTS))
-$(MDDEPDIR)/.all.pp: FORCE
-	@$(PERL) $(BUILD_TOOLS)/mddepend.pl $@ $(MDDEPEND_FILES)
-endif
--include $(MDDEPDIR)/.all.pp
-else
-include $(MDDEPEND_FILES)
-endif
+ALL_PP_RESULTS = $(shell $(PERL) $(BUILD_TOOLS)/mddepend.pl - $(MDDEPEND_FILES))
+$(eval $(ALL_PP_RESULTS))
 endif
 
 endif
@@ -2072,12 +2092,6 @@ endif
 
 -include $(topsrcdir)/$(MOZ_BUILD_APP)/app-rules.mk
 -include $(MY_RULES)
-
-#
-# This speeds up gmake's processing if these files don't exist.
-#
-$(MY_CONFIG) $(MY_RULES):
-	@touch $@
 
 #
 # Generate Emacs tags in a file named TAGS if ETAGS was set in $(MY_CONFIG)
@@ -2148,15 +2162,6 @@ echo-module:
 
 echo-requires:
 	@echo $(REQUIRES)
-
-echo-requires-recursive::
-ifdef _REPORT_ALL_DIRS
-	@echo $(subst $(topsrcdir)/,,$(srcdir)): $(MODULE): $(REQUIRES)
-else
-	@$(if $(REQUIRES),echo $(subst $(topsrcdir)/,,$(srcdir)): $(MODULE): $(REQUIRES))
-endif
-	$(LOOP_OVER_PARALLEL_DIRS)
-	$(LOOP_OVER_DIRS)
 
 echo-depth-path:
 	@$(topsrcdir)/build/unix/print-depth-path.sh

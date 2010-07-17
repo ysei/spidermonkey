@@ -4,7 +4,17 @@ import datetime, os, re, sys, traceback
 import subprocess
 from subprocess import *
 
-JS = None
+DEBUGGER_INFO = {
+  "gdb": {
+    "interactive": True,
+    "args": "-q --args"
+  },
+
+  "valgrind": {
+    "interactive": False,
+    "args": "--leak-check=full"
+  }
+}
 
 # Backported from Python 3.1 posixpath.py
 def _relpath(path, start=None):
@@ -30,7 +40,7 @@ def _relpath(path, start=None):
 os.path.relpath = _relpath
 
 class Test:
-    def __init__(self, path, slow, allow_oom, tmflags, valgrind):
+    def __init__(self, path, slow, allow_oom, tmflags, error, valgrind):
         """  path        path to test file
              slow        True means the test is slow-running
              allow_oom   True means OOM should not be considered a failure
@@ -39,6 +49,7 @@ class Test:
         self.slow = slow
         self.allow_oom = allow_oom
         self.tmflags = tmflags
+        self.error = error
         self.valgrind = valgrind
 
     COOKIE = '|trace-test|'
@@ -46,7 +57,7 @@ class Test:
     @classmethod
     def from_file(cls, path, options):
         slow = allow_oom = valgrind = False
-        tmflags = ''
+        error = tmflags = ''
 
         line = open(path).readline()
         i = line.find(cls.COOKIE)
@@ -62,6 +73,8 @@ class Test:
                     value = value.strip()
                     if name == 'TMFLAGS':
                         tmflags = value
+                    elif name == 'error':
+                        error = value
                     else:
                         print('warning: unrecognized |trace-test| attribute %s'%part)
                 else:
@@ -74,11 +87,13 @@ class Test:
                     else:
                         print('warning: unrecognized |trace-test| attribute %s'%part)
 
-        return cls(path, slow, allow_oom, tmflags, valgrind or options.valgrind_all)
+        return cls(path, slow, allow_oom, tmflags, error, valgrind or options.valgrind_all)
 
 def find_tests(dir, substring = None):
     ans = []
     for dirpath, dirnames, filenames in os.walk(dir):
+        dirnames.sort()
+        filenames.sort()
         if dirpath == '.':
             continue
         for filename in filenames:
@@ -111,6 +126,7 @@ def run_test(test, lib_dir):
         any([os.path.exists(os.path.join(d, 'valgrind'))
              for d in os.environ['PATH'].split(os.pathsep)])):
         valgrind_prefix = [ 'valgrind',
+                            '-q',
                             '--smc-check=all',
                             '--error-exitcode=1',
                             '--leak-check=full']
@@ -130,9 +146,13 @@ def run_test(test, lib_dir):
         sys.stdout.write(err)
     if test.valgrind:
         sys.stdout.write(err)
-    return (check_output(out, err, p.returncode, test.allow_oom), out, err)
+    return (check_output(out, err, p.returncode, test.allow_oom, test.error), 
+            out, err)
 
-def check_output(out, err, rc, allow_oom):
+def check_output(out, err, rc, allow_oom, expectedError):
+    if expectedError:
+        return expectedError in err
+
     for line in out.split('\n'):
         if line.startswith('Trace stats check failed'):
             return False
@@ -144,7 +164,7 @@ def check_output(out, err, rc, allow_oom):
     if rc != 0:
         # Allow a non-zero exit code if we want to allow OOM, but only if we
         # actually got OOM.
-        return allow_oom and ': out of memory\n' in err
+        return allow_oom and ': out of memory' in err
 
     return True
 
@@ -188,7 +208,7 @@ def run_tests(tests, test_dir, lib_dir):
                 pb.update(n)
         complete = True
     except KeyboardInterrupt:
-        pass
+        print('TEST-UNEXPECTED_FAIL | trace-test.py | %s'%test.path)
 
     if pb:
         pb.finish()

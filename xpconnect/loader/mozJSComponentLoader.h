@@ -74,7 +74,7 @@ class nsXPCFastLoadIO : public nsIFastLoadFileIO
     NS_DECL_ISUPPORTS
     NS_DECL_NSIFASTLOADFILEIO
 
-    nsXPCFastLoadIO(nsIFile *file) : mFile(file) {}
+    nsXPCFastLoadIO(nsIFile *file) : mFile(file), mTruncateOutputFile(true) {}
 
     void SetInputStream(nsIInputStream *stream) { mInputStream = stream; }
     void SetOutputStream(nsIOutputStream *stream) { mOutputStream = stream; }
@@ -85,6 +85,7 @@ class nsXPCFastLoadIO : public nsIFastLoadFileIO
     nsCOMPtr<nsIFile> mFile;
     nsCOMPtr<nsIInputStream> mInputStream;
     nsCOMPtr<nsIOutputStream> mOutputStream;
+    bool mTruncateOutputFile;
 };
 
 
@@ -108,7 +109,18 @@ class mozJSComponentLoader : public nsIModuleLoader,
     nsresult ReallyInit();
     void UnloadModules();
 
-    nsresult GlobalForLocation(nsILocalFile *aComponent,
+    nsresult FileKey(nsILocalFile* aFile, nsAString &aResult);
+    nsresult JarKey(nsILocalFile* aFile,
+                    const nsACString& aComponentPath,
+                    nsAString &aResult);
+
+    nsresult LoadModuleImpl(nsILocalFile* aSourceFile,
+                            nsAString &aKey,
+                            nsIURI* aComponentURI,
+                            nsIModule* *aResult);
+
+    nsresult GlobalForLocation(nsILocalFile* aComponentFile,
+                               nsIURI *aComponent,
                                JSObject **aGlobal,
                                char **location,
                                jsval *exception);
@@ -164,9 +176,9 @@ class mozJSComponentLoader : public nsIModuleLoader,
 
     friend class ModuleEntry;
 
-    nsClassHashtable<nsHashableHashKey, ModuleEntry> mModules;
-    nsClassHashtable<nsHashableHashKey, ModuleEntry> mImports;
-    nsDataHashtable<nsHashableHashKey, ModuleEntry*> mInProgressImports;
+    nsClassHashtable<nsStringHashKey, ModuleEntry> mModules;
+    nsClassHashtable<nsStringHashKey, ModuleEntry> mImports;
+    nsDataHashtable<nsStringHashKey, ModuleEntry*> mInProgressImports;
 
     PRBool mInitialized;
 };

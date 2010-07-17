@@ -56,11 +56,6 @@ endif
 ifndef INCLUDED_AUTOCONF_MK
 include $(DEPTH)/config/autoconf.mk
 endif
-ifndef INCLUDED_INSURE_MK
-ifdef MOZ_INSURIFYING
-include $(topsrcdir)/config/insure.mk
-endif
-endif
 
 COMMA = ,
 
@@ -154,7 +149,7 @@ MOZ_WIDGET_SUPPORT_LIBS    = $(DIST)/lib/$(LIB_PREFIX)widgetsupport_s.$(LIB_SUFF
 
 ifdef MOZ_MEMORY
 ifneq (,$(filter-out WINNT WINCE,$(OS_ARCH)))
-JEMALLOC_LIBS = $(MKSHLIB_FORCE_ALL) $(call EXPAND_LIBNAME_PATH,jemalloc,$(DIST)/lib) $(MKSHLIB_UNFORCE_ALL)
+JEMALLOC_LIBS = $(MKSHLIB_FORCE_ALL) $(call EXPAND_MOZLIBNAME,jemalloc) $(MKSHLIB_UNFORCE_ALL)
 endif
 endif
 
@@ -162,80 +157,21 @@ endif
 _DEBUG_CFLAGS :=
 _DEBUG_LDFLAGS :=
 
-ifndef MOZ_DEBUG
-  # global debugging is disabled 
-  # check if it was explicitly enabled for this module
-  ifneq (, $(findstring $(MODULE), $(MOZ_DEBUG_MODULES)))
-    MOZ_DEBUG:=1
-  endif
-else
-  # global debugging is enabled
-  # check if it was explicitly disabled for this module
-  ifneq (, $(findstring ^$(MODULE), $(MOZ_DEBUG_MODULES)))
-    MOZ_DEBUG:=
-  endif
-endif
-
 ifdef MOZ_DEBUG
-  _DEBUG_CFLAGS += $(MOZ_DEBUG_ENABLE_DEFS)
+  _DEBUG_CFLAGS += $(MOZ_DEBUG_ENABLE_DEFS) $(MOZ_DEBUG_FLAGS)
+  _DEBUG_LDFLAGS += $(MOZ_DEBUG_LDFLAGS)
   XULPPFLAGS += $(MOZ_DEBUG_ENABLE_DEFS)
 else
   _DEBUG_CFLAGS += $(MOZ_DEBUG_DISABLE_DEFS)
   XULPPFLAGS += $(MOZ_DEBUG_DISABLE_DEFS)
-endif
-
-# determine if -g should be passed to the compiler, based on
-# the current module, and the value of MOZ_DBGRINFO_MODULES
-
-ifdef MOZ_DEBUG
-  MOZ_DBGRINFO_MODULES += ALL_MODULES
-  pattern := ALL_MODULES ^ALL_MODULES
-else
-  MOZ_DBGRINFO_MODULES += ^ALL_MODULES
-  pattern := ALL_MODULES ^ALL_MODULES
-endif
-
-ifdef MODULE
-  # our current Makefile specifies a module name - add it to our pattern
-  pattern += $(MODULE) ^$(MODULE)
-endif
-
-# start by finding the first relevant module name 
-# (remember that the order of the module names in MOZ_DBGRINFO_MODULES 
-# is reversed from the order the user specified to configure - 
-# this allows the user to put general names at the beginning
-# of the list, and to override them with explicit module names later 
-# in the list)
-
-first_match:=$(firstword $(filter $(pattern), $(MOZ_DBGRINFO_MODULES)))
-
-ifeq ($(first_match), $(MODULE))
-  # the user specified explicitly that 
-  # this module should be compiled with -g
-  _DEBUG_CFLAGS += $(MOZ_DEBUG_FLAGS)
-  _DEBUG_LDFLAGS += $(MOZ_DEBUG_LDFLAGS)
-else
-  ifeq ($(first_match), ^$(MODULE))
-    # the user specified explicitly that this module 
-    # should not be compiled with -g (nothing to do)
-  else
-    ifeq ($(first_match), ALL_MODULES)
-      # the user didn't mention this module explicitly, 
-      # but wanted all modules to be compiled with -g
-      _DEBUG_CFLAGS += $(MOZ_DEBUG_FLAGS)
-      _DEBUG_LDFLAGS += $(MOZ_DEBUG_LDFLAGS)      
-    else
-      ifeq ($(first_match), ^ALL_MODULES)
-        # the user didn't mention this module explicitly, 
-        # but wanted all modules to be compiled without -g (nothing to do)
-      endif
-    endif
+  ifdef MOZ_DEBUG_SYMBOLS
+    _DEBUG_CFLAGS += $(MOZ_DEBUG_FLAGS)
+    _DEBUG_LDFLAGS += $(MOZ_DEBUG_LDFLAGS)
   endif
 endif
 
+MOZALLOC_LIB = -L$(DIST)/bin $(call EXPAND_MOZLIBNAME,mozalloc)
 
-# append debug flags 
-# (these might have been above when processing MOZ_DBGRINFO_MODULES)
 OS_CFLAGS += $(_DEBUG_CFLAGS)
 OS_CXXFLAGS += $(_DEBUG_CFLAGS)
 OS_LDFLAGS += $(_DEBUG_LDFLAGS)
@@ -263,7 +199,7 @@ endif
 ifdef MOZ_DEBUG_SYMBOLS
 OS_CXXFLAGS += -Zi -UDEBUG -DNDEBUG
 OS_CFLAGS += -Zi -UDEBUG -DNDEBUG
-OS_LDFLAGS += -DEBUG -OPT:REF -OPT:nowin98
+OS_LDFLAGS += -DEBUG -OPT:REF
 endif
 
 ifdef MOZ_QUANTIFY
@@ -423,7 +359,6 @@ DEFINES += \
 		-D_IMPL_NS_COM \
 		-DEXPORT_XPT_API \
 		-DEXPORT_XPTC_API \
-		-D_IMPL_NS_COM_OBSOLETE \
 		-D_IMPL_NS_GFX \
 		-D_IMPL_NS_WIDGET \
 		-DIMPL_XREAPI \
@@ -557,6 +492,36 @@ endif # MOZ_OPTIMIZE == 1
 endif # MOZ_OPTIMIZE
 endif # CROSS_COMPILE
 
+# Check for FAIL_ON_WARNINGS & FAIL_ON_WARNINGS_DEBUG (Shorthand for Makefiles
+# to request that we use the 'warnings as errors' compile flags)
+
+# NOTE: First, we clear FAIL_ON_WARNINGS[_DEBUG] if we're doing a Windows PGO
+# build, since WARNINGS_AS_ERRORS has been suspected of causing isuses in that
+# situation. (See bug 437002.)
+ifeq (WINNT_1,$(OS_ARCH)_$(MOZ_PROFILE_GENERATE)$(MOZ_PROFILE_USE))
+FAIL_ON_WARNINGS_DEBUG=
+FAIL_ON_WARNINGS=
+endif # WINNT && (MOS_PROFILE_GENERATE ^ MOZ_PROFILE_USE)
+
+# Also clear FAIL_ON_WARNINGS[_DEBUG] for Android builds, since
+# they have some platform-specific warnings we haven't fixed yet.
+ifeq ($(OS_TARGET),Android)
+FAIL_ON_WARNINGS_DEBUG=
+FAIL_ON_WARNINGS=
+endif # Android
+
+# Now, check for debug version of flag; it turns on normal flag in debug builds.
+ifdef FAIL_ON_WARNINGS_DEBUG
+ifdef MOZ_DEBUG
+FAIL_ON_WARNINGS = 1
+endif # MOZ_DEBUG
+endif # FAIL_ON_WARNINGS_DEBUG
+
+# Check for normal version of flag, and add WARNINGS_AS_ERRORS if it's set to 1.
+ifdef FAIL_ON_WARNINGS
+CXXFLAGS += $(WARNINGS_AS_ERRORS)
+CFLAGS   += $(WARNINGS_AS_ERRORS)
+endif # FAIL_ON_WARNINGS
 
 ifeq ($(OS_ARCH)_$(GNU_CC),WINNT_)
 #// Currently, unless USE_STATIC_LIBS is defined, the multithreaded
@@ -590,8 +555,8 @@ OS_COMPILE_CMFLAGS += -fobjc-exceptions
 OS_COMPILE_CMMFLAGS += -fobjc-exceptions
 endif
 
-COMPILE_CFLAGS	= $(VISIBILITY_FLAGS) $(DEFINES) $(INCLUDES) $(XCFLAGS) $(PROFILER_CFLAGS) $(DSO_CFLAGS) $(DSO_PIC_CFLAGS) $(CFLAGS) $(RTL_FLAGS) $(OS_COMPILE_CFLAGS)
-COMPILE_CXXFLAGS = $(VISIBILITY_FLAGS) $(DEFINES) $(INCLUDES) $(XCFLAGS) $(PROFILER_CFLAGS) $(DSO_CFLAGS) $(DSO_PIC_CFLAGS)  $(CXXFLAGS) $(RTL_FLAGS) $(OS_COMPILE_CXXFLAGS)
+COMPILE_CFLAGS	= $(VISIBILITY_FLAGS) $(DEFINES) $(INCLUDES) $(DSO_CFLAGS) $(DSO_PIC_CFLAGS) $(CFLAGS) $(RTL_FLAGS) $(OS_COMPILE_CFLAGS)
+COMPILE_CXXFLAGS = $(STL_FLAGS) $(VISIBILITY_FLAGS) $(DEFINES) $(INCLUDES) $(DSO_CFLAGS) $(DSO_PIC_CFLAGS) $(CXXFLAGS) $(RTL_FLAGS) $(OS_COMPILE_CXXFLAGS)
 COMPILE_CMFLAGS = $(OS_COMPILE_CMFLAGS)
 COMPILE_CMMFLAGS = $(OS_COMPILE_CMMFLAGS)
 
@@ -632,10 +597,6 @@ DEPENDENCIES	= .md
 
 MOZ_COMPONENT_LIBS=$(XPCOM_LIBS) $(MOZ_COMPONENT_NSPR_LIBS)
 
-ifdef GC_LEAK_DETECTOR
-XPCOM_LIBS += -lboehm
-endif
-
 ifeq (xpconnect, $(findstring xpconnect, $(BUILD_MODULES)))
 DEFINES +=  -DXPCONNECT_STANDALONE
 endif
@@ -644,6 +605,10 @@ ifeq ($(OS_ARCH),OS2)
 ELF_DYNSTR_GC	= echo
 else
 ELF_DYNSTR_GC	= :
+endif
+
+ifeq ($(MOZ_WIDGET_TOOLKIT),qt)
+OS_LIBS += $(MOZ_QT_LIBS)
 endif
 
 ifndef CROSS_COMPILE
@@ -720,18 +685,6 @@ endif
 endif
 endif
 
-# Flags needed to link against the component library
-ifdef MOZ_COMPONENTLIB
-MOZ_COMPONENTLIB_EXTRA_DSO_LIBS = mozcomps xpcom_compat
-
-# Tell the linker where NSS is, if we're building crypto
-ifeq ($(OS_ARCH),Darwin)
-ifeq (,$(findstring crypto,$(MOZ_META_COMPONENTS)))
-MOZ_COMPONENTLIB_EXTRA_LIBS = $(foreach library, $(patsubst -l%, $(LIB_PREFIX)%$(DLL_SUFFIX), $(filter -l%, $(NSS_LIBS))), -dylib_file @executable_path/$(library):$(DIST)/bin/$(library))
-endif
-endif
-endif
-
 # If we're building a component on MSVC, we don't want to generate an
 # import lib, because that import lib will collide with the name of a
 # static version of the same library.
@@ -753,18 +706,6 @@ endif
 
 DEFINES		+= -DOSTYPE=\"$(OS_CONFIG)\"
 DEFINES		+= -DOSARCH=$(OS_ARCH)
-
-# For profiling
-ifdef ENABLE_EAZEL_PROFILER
-ifndef INTERNAL_TOOLS
-ifneq ($(LIBRARY_NAME), xpt)
-ifneq (, $(findstring $(shell $(topsrcdir)/build/unix/print-depth-path.sh | awk -F/ '{ print $$2; }'), $(MOZ_PROFILE_MODULES)))
-PROFILER_CFLAGS	= $(EAZEL_PROFILER_CFLAGS) -DENABLE_EAZEL_PROFILER
-PROFILER_LIBS	= $(EAZEL_PROFILER_LIBS)
-endif
-endif
-endif
-endif
 
 ######################################################################
 
@@ -849,13 +790,17 @@ MAKE_JARS_FLAGS += -c $(topsrcdir)/$(relativesrcdir)/en-US
 endif
 endif
 
-ifeq (,$(filter WINCE WINNT OS2,$(OS_ARCH)))
-RUN_TEST_PROGRAM = $(DIST)/bin/run-mozilla.sh
-endif
-
-ifeq ($(OS_ARCH),OS2)
+ifdef WINCE
+RUN_TEST_PROGRAM = $(PYTHON) $(topsrcdir)/build/mobile/devicemanager-run-test.py
+else
+ifeq (OS2,$(OS_ARCH))
 RUN_TEST_PROGRAM = $(topsrcdir)/build/os2/test_os2.cmd "$(DIST)"
-endif
+else
+ifneq (WINNT,$(OS_ARCH))
+RUN_TEST_PROGRAM = $(DIST)/bin/run-mozilla.sh
+endif # ! WINNT
+endif # ! OS2
+endif # ! WINCE
 
 #
 # Java macros

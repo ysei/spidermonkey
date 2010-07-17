@@ -203,7 +203,7 @@ nsJSID::NewID(const char* str)
 {
     if(!str)
     {
-        NS_ASSERTION(0,"no string");
+        NS_ERROR("no string");
         return nsnull;
     }
 
@@ -470,7 +470,7 @@ nsJSIID::NewID(nsIInterfaceInfo* aInfo)
 }
 
 
-/* PRBool resolve (in nsIXPConnectWrappedNative wrapper, in JSContextPtr cx, in JSObjectPtr obj, in JSVal id); */
+/* PRBool resolve (in nsIXPConnectWrappedNative wrapper, in JSContextPtr cx, in JSObjectPtr obj, in jsval id); */
 NS_IMETHODIMP
 nsJSIID::NewResolve(nsIXPConnectWrappedNative *wrapper,
                     JSContext * cx, JSObject * obj,
@@ -541,7 +541,7 @@ nsJSIID::Enumerate(nsIXPConnectWrappedNative *wrapper,
     return NS_OK;
 }
 
-/* PRBool hasInstance (in nsIXPConnectWrappedNative wrapper, in JSContextPtr cx, in JSObjectPtr obj, in JSVal val, out PRBool bp); */
+/* PRBool hasInstance (in nsIXPConnectWrappedNative wrapper, in JSContextPtr cx, in JSObjectPtr obj, in jsval val, out PRBool bp); */
 NS_IMETHODIMP
 nsJSIID::HasInstance(nsIXPConnectWrappedNative *wrapper,
                      JSContext * cx, JSObject * obj,
@@ -704,7 +704,7 @@ nsJSCID::NewID(const char* str)
 {
     if(!str)
     {
-        NS_ASSERTION(0,"no string");
+        NS_ERROR("no string");
         return nsnull;
     }
 
@@ -927,7 +927,7 @@ nsJSCID::Construct(nsIXPConnectWrappedNative *wrapper,
     return NS_OK;
 }
 
-/* PRBool hasInstance (in nsIXPConnectWrappedNative wrapper, in JSContextPtr cx, in JSObjectPtr obj, in JSVal val, out PRBool bp); */
+/* PRBool hasInstance (in nsIXPConnectWrappedNative wrapper, in JSContextPtr cx, in JSObjectPtr obj, in jsval val, out PRBool bp); */
 NS_IMETHODIMP
 nsJSCID::HasInstance(nsIXPConnectWrappedNative *wrapper,
                      JSContext * cx, JSObject * obj,
@@ -943,22 +943,17 @@ nsJSCID::HasInstance(nsIXPConnectWrappedNative *wrapper,
 
         NS_ASSERTION(obj, "when is an object not an object?");
 
-        nsIClassInfo* ci;
-        if(IS_SLIM_WRAPPER(obj))
-        {
-            ci = GetSlimWrapperProto(obj)->GetClassInfo();
-        }
-        else
-        {
-            // is this really a native xpcom object with a wrapper?
-            XPCWrappedNative* other_wrapper =
-               XPCWrappedNative::GetWrappedNativeOfJSObject(cx, obj);
+        // is this really a native xpcom object with a wrapper?
+        JSObject* obj2;
+        XPCWrappedNative* other_wrapper =
+           XPCWrappedNative::GetWrappedNativeOfJSObject(cx, obj, nsnull, &obj2);
 
-            if(!other_wrapper)
-                return NS_OK;
+        if(!other_wrapper || !obj2)
+            return NS_OK;
 
-            ci = other_wrapper->GetClassInfo();
-        }
+        nsIClassInfo* ci = other_wrapper ?
+                           other_wrapper->GetClassInfo() :
+                           GetSlimWrapperProto(obj2)->GetClassInfo();
 
         // We consider CID equality to be the thing that matters here.
         // This is perhaps debatable.

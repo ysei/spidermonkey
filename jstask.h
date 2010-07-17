@@ -39,12 +39,11 @@
 #ifndef jstask_h___
 #define jstask_h___
 
-#ifdef __cplusplus /* Allow inclusion from LiveConnect C files. */
-
 class JSBackgroundTask {
     friend class JSBackgroundThread;
     JSBackgroundTask* next;
   public:
+    virtual ~JSBackgroundTask() {}
     virtual void run() = 0;
 };
 
@@ -82,7 +81,5 @@ class JSBackgroundThread {
 };
 
 #endif
-
-#endif /* __cplusplus */
 
 #endif /* jstask_h___ */

@@ -56,7 +56,7 @@
 #include "jslibmath.h"
 #include "jsobj.h"
 
-extern jsdouble js_NaN;
+using namespace js;
 
 #ifndef M_E
 #define M_E             2.7182818284590452354
@@ -109,11 +109,10 @@ math_abs(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
     z = fabs(x);
     return js_NewNumberInRootedValue(cx, z, vp);
@@ -125,15 +124,14 @@ math_acos(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
 #if defined(SOLARIS) && defined(__GNUC__)
     if (x < -1 || 1 < x) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
 #endif
@@ -147,15 +145,14 @@ math_asin(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
 #if defined(SOLARIS) && defined(__GNUC__)
     if (x < -1 || 1 < x) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
 #endif
@@ -169,11 +166,10 @@ math_atan(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
     z = atan(x);
     return js_NewNumberInRootedValue(cx, z, vp);
@@ -215,14 +211,12 @@ math_atan2(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, y;
 
     if (argc <= 1) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
-    y = js_ValueToNumber(cx, &vp[3]);
-    if (JSVAL_IS_NULL(vp[3]))
+    if (!ValueToNumber(cx, vp[3], &y))
         return JS_FALSE;
     return js_NewNumberInRootedValue(cx, math_atan2_kernel (x, y), vp);
 }
@@ -243,11 +237,10 @@ js_math_ceil(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
     z = math_ceil_kernel(x);
     return js_NewNumberInRootedValue(cx, z, vp);
@@ -259,11 +252,10 @@ math_cos(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
     z = cos(x);
     return js_NewNumberInRootedValue(cx, z, vp);
@@ -275,19 +267,18 @@ math_exp(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
 #ifdef _WIN32
     if (!JSDOUBLE_IS_NaN(x)) {
-        if (x == *cx->runtime->jsPositiveInfinity) {
-            *vp = DOUBLE_TO_JSVAL(cx->runtime->jsPositiveInfinity);
+        if (x == js_PositiveInfinity) {
+            *vp = cx->runtime->positiveInfinityValue;
             return JS_TRUE;
         }
-        if (x == *cx->runtime->jsNegativeInfinity) {
+        if (x == js_NegativeInfinity) {
             *vp = JSVAL_ZERO;
             return JS_TRUE;
         }
@@ -303,11 +294,10 @@ js_math_floor(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
     z = floor(x);
     return js_NewNumberInRootedValue(cx, z, vp);
@@ -319,15 +309,14 @@ math_log(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
 #if defined(SOLARIS) && defined(__GNUC__)
     if (x < 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
 #endif
@@ -338,21 +327,20 @@ math_log(JSContext *cx, uintN argc, jsval *vp)
 JSBool
 js_math_max(JSContext *cx, uintN argc, jsval *vp)
 {
-    jsdouble x, z = *cx->runtime->jsNegativeInfinity;
+    jsdouble x, z = js_NegativeInfinity;
     jsval *argv;
     uintN i;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNegativeInfinity);
+        *vp = cx->runtime->negativeInfinityValue;
         return JS_TRUE;
     }
     argv = vp + 2;
     for (i = 0; i < argc; i++) {
-        x = js_ValueToNumber(cx, &argv[i]);
-        if (JSVAL_IS_NULL(argv[i]))
+        if (!ValueToNumber(cx, argv[i], &x))
             return JS_FALSE;
         if (JSDOUBLE_IS_NaN(x)) {
-            *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+            *vp = cx->runtime->NaNValue;
             return JS_TRUE;
         }
         if (x == 0 && x == z) {
@@ -368,21 +356,20 @@ js_math_max(JSContext *cx, uintN argc, jsval *vp)
 JSBool
 js_math_min(JSContext *cx, uintN argc, jsval *vp)
 {
-    jsdouble x, z = *cx->runtime->jsPositiveInfinity;
+    jsdouble x, z = js_PositiveInfinity;
     jsval *argv;
     uintN i;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsPositiveInfinity);
+        *vp = cx->runtime->positiveInfinityValue;
         return JS_TRUE;
     }
     argv = vp + 2;
     for (i = 0; i < argc; i++) {
-        x = js_ValueToNumber(cx, &argv[i]);
-        if (JSVAL_IS_NULL(argv[i]))
+        if (!ValueToNumber(cx, argv[i], &x))
             return JS_FALSE;
         if (JSDOUBLE_IS_NaN(x)) {
-            *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+            *vp = cx->runtime->NaNValue;
             return JS_TRUE;
         }
         if (x == 0 && x == z) {
@@ -401,21 +388,19 @@ math_pow(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, y, z;
 
     if (argc <= 1) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
-    y = js_ValueToNumber(cx, &vp[3]);
-    if (JSVAL_IS_NULL(vp[3]))
+    if (!ValueToNumber(cx, vp[3], &y))
         return JS_FALSE;
     /*
      * Because C99 and ECMA specify different behavior for pow(),
      * we need to wrap the libm call to make it ECMA compliant.
      */
     if (!JSDOUBLE_IS_FINITE(y) && (x == 1.0 || x == -1.0)) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
     /* pow(x, +-0) is always 1, even for x = NaN. */
@@ -480,7 +465,7 @@ math_random(JSContext *cx, uintN argc, jsval *vp)
 }
 
 #if defined _WIN32 && !defined WINCE && _MSC_VER < 1400
-/* Try to work around apparent _copysign bustage in VC6 and VC7. */
+/* Try to work around apparent _copysign bustage in VC7.x. */
 double
 js_copysign(double x, double y)
 {
@@ -500,11 +485,10 @@ js_math_round(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
     z = js_copysign(floor(x + 0.5), x);
     return js_NewNumberInRootedValue(cx, z, vp);
@@ -516,11 +500,10 @@ math_sin(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
     z = sin(x);
     return js_NewNumberInRootedValue(cx, z, vp);
@@ -532,11 +515,10 @@ math_sqrt(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
     z = sqrt(x);
     return js_NewNumberInRootedValue(cx, z, vp);
@@ -548,11 +530,10 @@ math_tan(JSContext *cx, uintN argc, jsval *vp)
     jsdouble x, z;
 
     if (argc == 0) {
-        *vp = DOUBLE_TO_JSVAL(cx->runtime->jsNaN);
+        *vp = cx->runtime->NaNValue;
         return JS_TRUE;
     }
-    x = js_ValueToNumber(cx, &vp[2]);
-    if (JSVAL_IS_NULL(vp[2]))
+    if (!ValueToNumber(cx, vp[2], &x))
         return JS_FALSE;
     z = tan(x);
     return js_NewNumberInRootedValue(cx, z, vp);
@@ -573,7 +554,7 @@ math_toSource(JSContext *cx, uintN argc, jsval *vp)
 #define MATH_BUILTIN_CFUN_1(name, cfun)                                       \
     static jsdouble FASTCALL math_##name##_tn(jsdouble d) { return cfun(d); } \
     JS_DEFINE_TRCINFO_1(math_##name,                                          \
-        (1, (static, DOUBLE, math_##name##_tn, DOUBLE, 1, 1)))
+        (1, (static, DOUBLE, math_##name##_tn, DOUBLE, 1, nanojit::ACC_NONE)))
 
 MATH_BUILTIN_CFUN_1(abs, fabs)
 MATH_BUILTIN_1(atan)
@@ -610,18 +591,16 @@ static jsdouble FASTCALL
 math_exp_tn(JSContext *cx, jsdouble d)
 {
     if (!JSDOUBLE_IS_NaN(d)) {
-        if (d == *cx->runtime->jsPositiveInfinity) {
-            return *cx->runtime->jsPositiveInfinity;
-        }
-        if (d == *cx->runtime->jsNegativeInfinity) {
+        if (d == js_PositiveInfinity)
+            return js_PositiveInfinity;
+        if (d == js_NegativeInfinity)
             return 0.0;
-        }
     }
     return exp(d);
 }
 
 JS_DEFINE_TRCINFO_1(math_exp,
-    (2, (static, DOUBLE, math_exp_tn,  CONTEXT, DOUBLE,  1, 1)))
+    (2, (static, DOUBLE, math_exp_tn,  CONTEXT, DOUBLE,  1, nanojit::ACC_NONE)))
 
 #else
 
@@ -704,27 +683,27 @@ math_floor_tn(jsdouble x)
 }
 
 JS_DEFINE_TRCINFO_1(math_acos,
-    (1, (static, DOUBLE, math_acos_tn, DOUBLE,          1, 1)))
+    (1, (static, DOUBLE, math_acos_tn, DOUBLE,          1, nanojit::ACC_NONE)))
 JS_DEFINE_TRCINFO_1(math_asin,
-    (1, (static, DOUBLE, math_asin_tn, DOUBLE,          1, 1)))
+    (1, (static, DOUBLE, math_asin_tn, DOUBLE,          1, nanojit::ACC_NONE)))
 JS_DEFINE_TRCINFO_1(math_atan2,
-    (2, (static, DOUBLE, math_atan2_kernel, DOUBLE, DOUBLE, 1, 1)))
+    (2, (static, DOUBLE, math_atan2_kernel, DOUBLE, DOUBLE, 1, nanojit::ACC_NONE)))
 JS_DEFINE_TRCINFO_1(js_math_floor,
-    (1, (static, DOUBLE, math_floor_tn, DOUBLE,         1, 1)))
+    (1, (static, DOUBLE, math_floor_tn, DOUBLE,         1, nanojit::ACC_NONE)))
 JS_DEFINE_TRCINFO_1(math_log,
-    (1, (static, DOUBLE, math_log_tn, DOUBLE,           1, 1)))
+    (1, (static, DOUBLE, math_log_tn, DOUBLE,           1, nanojit::ACC_NONE)))
 JS_DEFINE_TRCINFO_1(js_math_max,
-    (2, (static, DOUBLE, math_max_tn, DOUBLE, DOUBLE,   1, 1)))
+    (2, (static, DOUBLE, math_max_tn, DOUBLE, DOUBLE,   1, nanojit::ACC_NONE)))
 JS_DEFINE_TRCINFO_1(js_math_min,
-    (2, (static, DOUBLE, math_min_tn, DOUBLE, DOUBLE,   1, 1)))
+    (2, (static, DOUBLE, math_min_tn, DOUBLE, DOUBLE,   1, nanojit::ACC_NONE)))
 JS_DEFINE_TRCINFO_1(math_pow,
-    (2, (static, DOUBLE, math_pow_tn, DOUBLE, DOUBLE,   1, 1)))
+    (2, (static, DOUBLE, math_pow_tn, DOUBLE, DOUBLE,   1, nanojit::ACC_NONE)))
 JS_DEFINE_TRCINFO_1(math_random,
-    (1, (static, DOUBLE, math_random_tn, CONTEXT,       0, 0)))
+    (1, (static, DOUBLE, math_random_tn, CONTEXT,       0, nanojit::ACC_STORE_ANY)))
 JS_DEFINE_TRCINFO_1(js_math_round,
-    (1, (static, DOUBLE, math_round_tn, DOUBLE,         1, 1)))
+    (1, (static, DOUBLE, math_round_tn, DOUBLE,         1, nanojit::ACC_NONE)))
 JS_DEFINE_TRCINFO_1(js_math_ceil,
-    (1, (static, DOUBLE, math_ceil_tn, DOUBLE,          1, 1)))
+    (1, (static, DOUBLE, math_ceil_tn, DOUBLE,          1, nanojit::ACC_NONE)))
 
 #endif /* JS_TRACER */
 

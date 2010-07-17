@@ -212,6 +212,7 @@ dbus/dbus-glib.h
 dbus/dbus-glib-lowlevel.h
 ddeml.h
 Debug.h
+deque
 dem.h
 descrip.h
 Devices.h
@@ -274,6 +275,7 @@ freetype/tttables.h
 freetype/t1tables.h
 fribidi/fribidi.h
 FSp_fopen.h
+fstream
 fstream.h
 ft2build.h
 fts.h
@@ -329,6 +331,7 @@ IOKit/pwr_mgt/IOPMLib.h
 iomanip
 iostream
 iostream.h
+iterator
 jar.h
 JavaControl.h
 JavaEmbedding/JavaControl.h
@@ -395,13 +398,11 @@ libgnome/libgnome.h
 libgnomeui/gnome-icon-lookup.h
 libgnomeui/gnome-icon-theme.h
 libgnomeui/gnome-ui-init.h
-libgnomevfs/gnome-vfs-application-registry.h
 libgnomevfs/gnome-vfs-file-info.h
 libgnomevfs/gnome-vfs.h
 libgnomevfs/gnome-vfs-init.h
 libgnomevfs/gnome-vfs-mime.h
 libgnomevfs/gnome-vfs-mime-handlers.h
-libgnomevfs/gnome-vfs-mime-info.h
 libgnomevfs/gnome-vfs-mime-utils.h
 libgnomevfs/gnome-vfs-ops.h
 libgnomevfs/gnome-vfs-standard-callbacks.h
@@ -418,9 +419,6 @@ linux/version.h
 list
 List.h
 Lists.h
-#if MOZ_OJI==1
-LiveConnectManagerTests.h
-#endif
 LListBox.h
 LListener.h
 LMenuBar.h
@@ -612,6 +610,7 @@ pthread.h
 pwd.h
 Python.h
 QDOffscreen.h
+queue
 Quickdraw.h
 QuickDraw.h
 QuickTimeComponents.h
@@ -646,6 +645,7 @@ security.h
 secutil.h
 semaphore.h
 servprov.h
+set
 setjmp.h
 SFNTLayoutTypes.h
 SFNTTypes.h
@@ -739,6 +739,7 @@ sys/procfs.h
 sys/pstat.h
 sys/ptrace.h
 sys/queue.h
+sys/quota.h
 sys/reg.h
 sys/regset.h
 sys/resource.h
@@ -838,6 +839,7 @@ UReanimator.h
 URegions.h
 URegistrar.h
 UResourceMgr.h
+utility
 urlhist.h
 urlmon.h
 UScrap.h
@@ -1016,5 +1018,18 @@ bzlib.h
 #if MOZ_PLATFORM_MAEMO==5
 hildon-uri.h
 hildon-mime.h
+hildon-file-chooser-dialog.h
 libosso.h
+osso-mem.h
+#endif
+#ifdef MOZ_ENABLE_GIO
+gio/gio.h
+#endif
+#ifdef MOZ_ENABLE_LIBCONIC
+conic/conicconnection.h
+conic/conicconnectionevent.h
+conic/conicstatisticsevent.h
+#endif
+#if MOZ_NATIVE_LIBEVENT==1
+event.h
 #endif
