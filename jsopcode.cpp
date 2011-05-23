@@ -58,6 +58,7 @@
 #include "jsatom.h"
 #include "jscntxt.h"
 #include "jsversion.h"
+#include "jsdbgapi.h"
 #include "jsemit.h"
 #include "jsfun.h"
 #include "jsiter.h"

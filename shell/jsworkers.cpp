@@ -895,12 +895,13 @@ class InitEvent : public Event
         if (!filename)
             return fail;
 
-        JSObject *scriptObj = JS_CompileFile(cx, child->getGlobal(), filename.ptr());
-        if (!scriptObj)
+        JSScript *script = JS_CompileFile(cx, child->getGlobal(), filename.ptr());
+        if (!script)
             return fail;
 
         AutoValueRooter rval(cx);
-        JSBool ok = JS_ExecuteScript(cx, child->getGlobal(), scriptObj, Jsvalify(rval.addr()));
+        JSBool ok = JS_ExecuteScript(cx, child->getGlobal(), script, Jsvalify(rval.addr()));
+        JS_DestroyScript(cx, script);
         return Result(ok);
     }
 };

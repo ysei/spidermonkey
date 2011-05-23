@@ -160,7 +160,7 @@ JS_SetDebugModeForCompartment(JSContext *cx, JSCompartment *comp, JSBool debug)
     // assumes that 'comp' is in the same thread as 'cx'.
 
 #ifdef JS_METHODJIT
-    JS::AutoEnterScriptCompartment ac;
+    JSAutoEnterCompartment ac;
 
     for (JSScript *script = (JSScript *)comp->scripts.next;
          &script->links != &comp->scripts;
@@ -2671,20 +2671,3 @@ js_ShutdownEthogram(JSContext *cx, uintN argc, jsval *vp)
 }
 
 #endif /* MOZ_TRACEVIS */
-
-#ifdef MOZ_TRACE_JSCALLS
-
-JS_PUBLIC_API(void)
-JS_SetFunctionCallback(JSContext *cx, JSFunctionCallback fcb)
-{
-    cx->functionCallback = fcb;
-}
-
-JS_PUBLIC_API(JSFunctionCallback)
-JS_GetFunctionCallback(JSContext *cx)
-{
-    return cx->functionCallback;
-}
-
-#endif /* MOZ_TRACE_JSCALLS */
-
